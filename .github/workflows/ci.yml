@@ -1,0 +1,57 @@
+name: tsq CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# One pipeline per ref at a time: the self-hosted runner hosts several repos,
+# and parallel docker integration stacks collide on memory.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+# The runner may not have python3.13/3.14 binaries; python-checks.yml would
+# silently fall back to python3. So every job pins its interpreter through
+# uv (which downloads the requested CPython itself) instead of relying on
+# the workflow's python_version resolution.
+
+jobs:
+  unit-py312:
+    uses: dev-lukas/ci-cd-actions/.github/workflows/python-checks.yml@main
+    with:
+      install_command: python -m pip install --quiet uv && uv sync --frozen --python 3.12
+      check_commands: |
+        uv run --frozen ruff check src tests
+        uv run --frozen mypy
+        uv run --frozen pytest -q
+
+  unit-py313:
+    uses: dev-lukas/ci-cd-actions/.github/workflows/python-checks.yml@main
+    with:
+      install_command: python -m pip install --quiet uv && uv sync --frozen --python 3.13
+      check_commands: |
+        uv run --frozen python -c "import sys; assert sys.version_info[:2] == (3, 13), sys.version"
+        uv run --frozen pytest -q
+
+  unit-py314:
+    uses: dev-lukas/ci-cd-actions/.github/workflows/python-checks.yml@main
+    with:
+      install_command: python -m pip install --quiet uv && uv sync --frozen --python 3.14
+      check_commands: |
+        uv run --frozen python -c "import sys; assert sys.version_info[:2] == (3, 14), sys.version"
+        uv run --frozen pytest -q
+
+  integration:
+    needs: [unit-py312, unit-py313, unit-py314]
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    uses: dev-lukas/ci-cd-actions/.github/workflows/python-checks.yml@main
+    with:
+      install_command: python -m pip install --quiet uv && uv sync --frozen --python 3.12
+      check_commands: |
+        ./scripts/run-integration-tests.sh
