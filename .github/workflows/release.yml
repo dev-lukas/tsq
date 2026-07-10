@@ -4,11 +4,15 @@ name: Release to PyPI
 # the pypa action exchanges GitHub's OIDC token for a short-lived PyPI
 # token - no stored secrets. The publisher is registered on PyPI as
 # repo dev-lukas/atsq, workflow release.yml, environment pypi.
+#
+# workflow_dispatch runs the build job only (publish is tag-gated), so the
+# release pipeline can be verified without shipping anything.
 on:
   push:
     tags:
       # glob, not regex: any x.y.z-style tag incl. pre-releases (1.0.0a4)
       - "[0-9]*.[0-9]*.[0-9]*"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -17,7 +21,7 @@ jobs:
   build:
     runs-on: self-hosted
     steps:
-      - uses: actions/checkout@v6.0.2
+      - uses: actions/checkout@v7.0.0
       - name: Build sdist and wheel
         # The venv lives OUTSIDE the checkout: anything inside the project
         # dir would get packed into the sdist and break the build.
@@ -27,6 +31,7 @@ jobs:
           "$RUNNER_TEMP/release-venv/bin/pip" install --quiet uv
           "$RUNNER_TEMP/release-venv/bin/uv" build
       - name: Check tag matches project version
+        if: github.ref_type == 'tag'
         run: |
           set -euo pipefail
           version="$("$RUNNER_TEMP/release-venv/bin/uv" version --short)"
@@ -34,19 +39,20 @@ jobs:
             echo "tag ${GITHUB_REF_NAME} != pyproject version ${version}" >&2
             exit 1
           }
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7.0.1
         with:
           name: dist
           path: dist/
 
   publish:
     needs: build
+    if: github.ref_type == 'tag'
     runs-on: self-hosted
     environment: pypi
     permissions:
       id-token: write  # OIDC for Trusted Publishing
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8.0.1
         with:
           name: dist
           path: dist/
