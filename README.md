@@ -1,20 +1,17 @@
-# atsq
+# atsq — **A**synchronous **T**eam**S**peak **Q**uery
 
-Asyncio TeamSpeak ServerQuery client for **TeamSpeak 3** and **TeamSpeak 6**, over SSH.
+[![CI](https://github.com/dev-lukas/atsq/actions/workflows/ci.yml/badge.svg)](https://github.com/dev-lukas/atsq/actions/workflows/ci.yml)
+[![Release](https://github.com/dev-lukas/atsq/actions/workflows/release.yml/badge.svg)](https://github.com/dev-lukas/atsq/actions/workflows/release.yml)
+[![PyPI](https://img.shields.io/pypi/v/atsq)](https://pypi.org/project/atsq/)
+[![Python](https://img.shields.io/pypi/pyversions/atsq)](https://pypi.org/project/atsq/)
+[![License](https://img.shields.io/pypi/l/atsq)](LICENSE)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+[![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
 
-TeamSpeak 6 removed the classic raw/telnet ServerQuery — SSH query (port 10022) is the
-only line-protocol interface left. `atsq` speaks that protocol against both server
-generations with one async API, runs on modern Python (3.12–3.14+), and its whole test
-suite executes against real `teamspeak:3.13` and `teamspeaksystems/teamspeak6-server`
-containers.
-
-## Why
-
-- [`py-ts3`](https://github.com/benediktschmitt/py-ts3) is unmaintained and imports
-  `telnetlib` at module load — removed from the standard library in Python 3.13.
-- TeamSpeak 6 servers only offer SSH query (and HTTP WebQuery).
-- Bots want asyncio-native ergonomics: awaitable commands, `@client.on` event handlers,
-  automatic keepalive and reconnect — the `discord.py` feel.
+The successor to [py-ts3](https://github.com/benediktschmitt/py-ts3): an
+asyncio-native ServerQuery client for **TeamSpeak 3 and TeamSpeak 6** over SSH —
+automatic keepalive, reconnect and event dispatch, on modern Python
+(3.12–3.14+). Every release is tested live against real TS3 and TS6 servers.
 
 ## Install
 
@@ -22,34 +19,19 @@ containers.
 uv add atsq          # or: pip install atsq
 ```
 
-Requires Python ≥ 3.12. The only runtime dependency is
-[asyncssh](https://asyncssh.readthedocs.io/).
-
 ## Usage
-
-One-shot administrative session:
 
 ```python
 import atsq
 
-async with await atsq.connect("ts.example.com", 10022,
-                             password="...", server_id=1) as ts:
-    for row in await ts.client_list("uid"):
-        print(row["clid"], row["client_nickname"])
-    cid = await ts.channel_create("Lounge", channel_flag_permanent=1)
-```
-
-Long-running bot with events and automatic reconnect:
-
-```python
 client = atsq.Client("ts.example.com", 10022, password="...",
-                    server_id=1,                    # or server_port=9987
-                    nickname="My Bot",              # re-applied on reconnect
-                    register_events=atsq.ALL_EVENTS) # or "server", or a list
+                     server_id=1,                    # or server_port=9987
+                     nickname="My Bot",              # re-applied on reconnect
+                     register_events=atsq.ALL_EVENTS)
 
 @client.on("cliententerview")
 async def on_join(event: atsq.Event) -> None:
-    if event.get("reasonid") == "0" and event.get("client_type") == "0":
+    if event["client_type"] == atsq.ClientType.VOICE:
         print("joined:", event["client_unique_identifier"])
 
 @client.on("clientleftview")
@@ -59,15 +41,30 @@ async def on_leave(event: atsq.Event) -> None:
 await client.run_forever()   # reconnects with backoff; keepalive automatic
 ```
 
-Pull-style event consumption (instead of handlers):
+<details>
+<summary><b>One-shot administrative session</b></summary>
+
+```python
+async with await atsq.connect("ts.example.com", 10022,
+                              password="...", server_id=1) as ts:
+    for row in await ts.client_list("uid"):
+        print(row["clid"], row["client_nickname"])
+    cid = await ts.channel_create("Lounge", channel_flag_permanent=1)
+```
+
+Pull-style event consumption instead of handlers:
 
 ```python
 async for event in client.events():
     handle(event)
 # or: event = await client.wait_for_event(timeout=240)
 ```
+</details>
 
-Anything without a typed wrapper goes through the generic escape-safe `exec()`,
+<details>
+<summary><b>Generic commands, pipelining and wire constants</b></summary>
+
+Anything without a typed wrapper goes through the escape-safe `exec()`,
 including pipelined bulk commands (many parameter blocks, one round trip):
 
 ```python
@@ -79,8 +76,7 @@ await ts.exec("channeladdperm", cid=60, blocks=[
 ])
 ```
 
-Wire constants are available as `StrEnum`s that compare directly against
-event/row values:
+Wire constants are `StrEnum`s that compare directly against event/row values:
 
 ```python
 from atsq import ReasonId, TargetMode, ClientType, LEAVE_REASONS
@@ -90,18 +86,24 @@ if event["reasonid"] == ReasonId.CONNECT and event["client_type"] == ClientType.
 if event.get("reasonid") in LEAVE_REASONS:
     ...
 ```
+</details>
 
-File transfer (icons, avatars, channel files) — same API against TS3 and TS6:
+<details>
+<summary><b>File transfer (icons, avatars, channel files)</b></summary>
+
+Same API against TS3 and TS6:
 
 ```python
 ft = atsq.FileTransfer(client)
 icon_id = await ft.upload_icon(png_bytes)            # crc32-named, returns the id
-data = await ft.download("/atsq.bin", cid=42)
+data = await ft.download("/file.bin", cid=42)
 rows = await ft.file_list(cid=42, path="/")          # [] for empty dirs
-await ft.delete_file("/atsq.bin", cid=42)
+await ft.delete_file("/file.bin", cid=42)
 ```
+</details>
 
-### Errors
+<details>
+<summary><b>Error handling</b></summary>
 
 ```python
 try:
@@ -114,39 +116,33 @@ except atsq.ConnectionClosedError:  # connection gone
     ...
 ```
 
-`atsq.FloodError` (a `QueryError`, id 524) signals server flood protection — add your
-client's IP to the server's `query_ip_allowlist.txt` to be exempt.
+`atsq.FloodError` (id 524) is retried automatically (`flood_retries`, default 2).
+</details>
 
-### Defaults worth knowing
+<details>
+<summary><b>Defaults worth knowing</b></summary>
 
 - **Keepalive**: automatic `whoami` after 240 s idle (servers kick at ~300 s).
   Configure via `keepalive_interval`; `0` disables.
 - **Flood protection**: an `error 524` is retried automatically after the wait
   the server asks for (`flood_retries`, default 2; `0` disables). Allowlisted
   IPs (`query_ip_allowlist.txt`) never hit it in the first place.
-- **Snapshots** work via plain `exec("serversnapshotcreate")` /
-  `exec("serversnapshotdeploy", version=..., data=...)` — note deploy
-  deselects the session; call `use` again afterwards.
-- **Reconnect** (`run_forever`): exponential backoff 5 s → 300 s; a server message
-  containing "banned" waits 300 s. `use`/`servernotifyregister` and `on_ready` re-run
-  after every reconnect.
-- **Host keys**: verification is off by default (TeamSpeak servers generate ephemeral
-  query host keys). Pin one in production: `atsq.connect(..., known_hosts=...)`
-  (forwarded to asyncssh).
+- **Reconnect** (`run_forever`): exponential backoff 5 s → 300 s; a server
+  message containing "banned" waits 300 s. `use`/`servernotifyregister` and
+  `on_ready` re-run after every reconnect.
+- **Host keys**: verification is off by default (TeamSpeak servers generate
+  ephemeral query host keys). Pin one in production:
+  `atsq.connect(..., known_hosts=...)` (forwarded to asyncssh).
 - **close() sends `quit`**: on TS6 a query client that silently drops the SSH
-  connection never produces a `notifyclientleftview`; a clean `quit` does (on both
-  generations). See [docs/dialects.md](docs/dialects.md).
+  connection never produces a `notifyclientleftview`; a clean `quit` does (on
+  both generations).
+- **Snapshots** work via plain `exec("serversnapshotcreate")` /
+  `exec("serversnapshotdeploy", version=..., data=...)` — deploy deselects the
+  session; call `use` again afterwards.
+</details>
 
-## TS3 vs TS6
-
-Probed against real servers — the wire dialects are near-identical, and `atsq`
-auto-detects the generation from the greeting (`client.dialect`). All recorded
-differences and server-config notes live in [docs/dialects.md](docs/dialects.md).
-
-Enable SSH query on a TS3 server with `TS3SERVER_QUERY_PROTOCOLS=raw,ssh`; on TS6 with
-`TSSERVER_QUERY_SSH_ENABLED=1` (password via `TSSERVER_QUERY_ADMIN_PASSWORD`).
-
-## Migrating from py-ts3
+<details>
+<summary><b>Migrating from py-ts3</b></summary>
 
 | py-ts3 | atsq |
 |---|---|
@@ -163,18 +159,26 @@ Enable SSH query on a TS3 server with `TS3SERVER_QUERY_PROTOCOLS=raw,ssh`; on TS
 | `ts3.filetransfer.TS3FileTransfer` | `atsq.FileTransfer` (asyncio, TS3+TS6) |
 | manual reconnect loop | `await client.run_forever()` |
 
+Enable SSH query on a TS3 server with `TS3SERVER_QUERY_PROTOCOLS=raw,ssh`; on
+TS6 it is the only line protocol (`TSSERVER_QUERY_SSH_ENABLED=1`, password via
+`TSSERVER_QUERY_ADMIN_PASSWORD`).
+</details>
+
+## Docs
+
+- [TS3 vs TS6 dialect findings](docs/dialects.md) — probe-verified differences
+  between the generations and how atsq handles them.
+- [Testing policy](docs/testing.md) — every function is covered by a unit test
+  **and** a live test against real servers; CI enforces it with a coverage gate.
+
 ## Development
 
 ```
 uv sync
 uv run pytest                        # unit + fake-transport tests (no docker)
 ./scripts/run-integration-tests.sh   # full suite vs real TS3 + TS6 in docker
-uv run ruff check src tests scripts && uv run mypy
 ```
-
-`scripts/probe_dialect.py` records raw protocol transcripts from a live server —
-rerun it when a new TS6 build lands and diff against `tests/unit/fixtures/`.
 
 ## License
 
-MIT
+[MIT](LICENSE)
