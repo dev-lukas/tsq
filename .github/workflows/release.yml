@@ -1,0 +1,51 @@
+name: Release to PyPI
+
+# Publishes on version tags (e.g. 1.0.0a4) via PyPI Trusted Publishing:
+# the pypa action exchanges GitHub's OIDC token for a short-lived PyPI
+# token - no stored secrets. The publisher is registered on PyPI as
+# repo dev-lukas/atsq, workflow release.yml, environment pypi.
+on:
+  push:
+    tags:
+      # glob, not regex: any x.y.z-style tag incl. pre-releases (1.0.0a4)
+      - "[0-9]*.[0-9]*.[0-9]*"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v6.0.2
+      - name: Build sdist and wheel
+        run: |
+          set -euo pipefail
+          python3 -m venv .release-venv
+          .release-venv/bin/pip install --quiet uv
+          .release-venv/bin/uv build
+      - name: Check tag matches project version
+        run: |
+          set -euo pipefail
+          version="$(.release-venv/bin/uv version --short)"
+          [ "$version" = "${GITHUB_REF_NAME}" ] || {
+            echo "tag ${GITHUB_REF_NAME} != pyproject version ${version}" >&2
+            exit 1
+          }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: self-hosted
+    environment: pypi
+    permissions:
+      id-token: write  # OIDC for Trusted Publishing
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
