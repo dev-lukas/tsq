@@ -8,7 +8,7 @@ followed by the file bytes (upload) or receives exactly ``size`` bytes
 
 Example::
 
-    ft = tsq.FileTransfer(client)
+    ft = atsq.FileTransfer(client)
     await ft.upload(icon_bytes, "/icon_3735928559")          # cid=0 = icons
     data = await ft.download("/avatar_...", cid=0)
     rows = await ft.file_list(cid=42, path="/")
@@ -21,10 +21,10 @@ import itertools
 import zlib
 from typing import TYPE_CHECKING, Any
 
-from tsq.errors import ConnectionClosedError, QueryError, QueryTimeoutError
+from atsq.errors import ConnectionClosedError, QueryError, QueryTimeoutError
 
 if TYPE_CHECKING:
-    from tsq.client import Client
+    from atsq.client import Client
 
 __all__ = ["FileTransfer"]
 
@@ -33,7 +33,7 @@ _EMPTY_RESULT_SET = 1281
 
 
 class FileTransfer:
-    """File operations bound to a connected :class:`~tsq.client.Client`.
+    """File operations bound to a connected :class:`~atsq.client.Client`.
 
     The data channel connects to ``host`` (default: the client's host) and
     the port advertised by the server. Pass ``port_override`` when the

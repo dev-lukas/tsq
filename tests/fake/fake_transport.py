@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 
-from tsq.errors import ConnectionClosedError
+from atsq.errors import ConnectionClosedError
 
 TS3_GREETING = [
     b"TS3",

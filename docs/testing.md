@@ -1,6 +1,6 @@
 # Testing policy
 
-**Every command and function tsq ships must be covered twice: by a unit/fake
+**Every command and function atsq ships must be covered twice: by a unit/fake
 test (no network) and by a live integration test against real servers.**
 CI enforces this with a coverage gate: the integration job runs the *entire*
 suite (unit + fake + integration) with `--cov-fail-under=99`. Only explicitly

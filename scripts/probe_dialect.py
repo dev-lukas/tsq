@@ -1,6 +1,6 @@
 """Dialect probe: record raw ServerQuery transcripts from a real server.
 
-Connects over SSH (like tsq does) but reads raw bytes with its own loop, so
+Connects over SSH (like atsq does) but reads raw bytes with its own loop, so
 the recorded transcript shows the true wire framing (``\\n\\r`` vs ``\\n``),
 greeting shape, response formats and event emission of the probed server.
 
@@ -26,7 +26,7 @@ import asyncssh
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from tsq.protocol import parse_data_line
+from atsq.protocol import parse_data_line
 
 ERROR_LINE_RE = re.compile(rb"(?:^|\n\r?)error id=\d+ msg=[^\n\r]*(?:\n\r?|$)")
 READ_CHUNK = 4096
@@ -173,8 +173,8 @@ async def probe_server(host: str, port: int, username: str, password: str) -> li
     await a.command(b"channellist")
 
     a.note("--- escaping round-trip via channelcreate ---")
-    # raw name: tsq probe |pipe| a/b\c   end   (with a tab)
-    escaped_name = rb"tsq\sprobe\s\p pipe\p\sa\/b\\c\tend"
+    # raw name: atsq probe |pipe| a/b\c   end   (with a tab)
+    escaped_name = rb"atsq\sprobe\s\p pipe\p\sa\/b\\c\tend"
     create_raw = await a.command(
         b"channelcreate channel_name=" + escaped_name + b" channel_flag_permanent=1"
     )
@@ -237,7 +237,7 @@ async def probe_server(host: str, port: int, username: str, password: str) -> li
     if my_clid:
         await a.command(
             b"sendtextmessage targetmode=1 target=" + my_clid.encode()
-            + rb" msg=tsq\sprobe\s\p a\/b\\c\tend"
+            + rb" msg=atsq\sprobe\s\p a\/b\\c\tend"
         )
         await a.command(
             f"clientkick clid={my_clid} reasonid=5 reasonmsg=tsq\\sprobe".encode()

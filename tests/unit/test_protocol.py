@@ -1,6 +1,6 @@
 import pytest
 
-from tsq.protocol import (
+from atsq.protocol import (
     ErrorLine,
     is_error_line,
     is_event_line,

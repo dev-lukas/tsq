@@ -1,4 +1,4 @@
-from tsq.escape import escape, unescape
+from atsq.escape import escape, unescape
 
 # Every single-character mapping from the ServerQuery manual.
 TABLE = [

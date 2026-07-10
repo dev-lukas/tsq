@@ -14,8 +14,8 @@ Raw transcripts: `tests/unit/fixtures/probe_ts3.log` / `probe_ts6.log`.
 
 **The wire protocol is effectively identical.** Every difference found is
 additive or cosmetic; no command, error code, event, framing or escaping
-difference affects tsq's core. All divergence handling lives in
-`src/tsq/dialect.py`.
+difference affects atsq's core. All divergence handling lives in
+`src/atsq/dialect.py`.
 
 ## Identical on both generations (probe-verified)
 
@@ -26,7 +26,7 @@ difference affects tsq's core. All divergence handling lives in
   (TS6 keeps it, presumably for tool compatibility).
 - **Framing**: `\n\r` line terminator everywhere (responses and events).
 - **Escaping**: identical table; `channelcreate` round-trip of
-  `tsq probe | pipe| a/b\c<TAB>end` returns byte-identical escapes on both.
+  `atsq probe | pipe| a/b\c<TAB>end` returns byte-identical escapes on both.
   Caveat (both generations, server-side): **channel names sanitize control
   characters away** (a `\t` in `channel_name` is silently dropped), while
   **text messages preserve them** — escaping itself is lossless; the
@@ -54,7 +54,7 @@ difference affects tsq's core. All divergence handling lives in
   commands, same ftkey + raw-TCP data channel on port 30033 (`FileManager`),
   byte-exact round-trips verified. Quirk shared by both: `ftgetfilelist` on an
   empty directory answers `error id=1281 database empty result set` instead of
-  zero rows (tsq's `FileTransfer.file_list` maps that to `[]`), and init
+  zero rows (atsq's `FileTransfer.file_list` maps that to `[]`), and init
   failures (e.g. overwrite conflicts) arrive as `status`/`msg` fields in the
   response row rather than as an error line.
 - **Pipelined parameter blocks** (`channeladdperm cid=… permsid=a permvalue=1|permsid=b permvalue=2`)
@@ -62,7 +62,7 @@ difference affects tsq's core. All divergence handling lives in
 - **Flood protection (524)**: identical live format on both —
   `msg=client is flooding extra_msg=please wait 1 seconds` — and the
   connection stays usable after waiting (probed against non-allowlisted
-  servers). tsq parses the hint and retries automatically
+  servers). atsq parses the hint and retries automatically
   (`flood_retries`, default 2).
 - **Snapshots**: `serversnapshotcreate` returns `version=3` + zstd/base64
   `data` on both; `serversnapshotdeploy version=… data=…` works via plain
@@ -72,14 +72,14 @@ difference affects tsq's core. All divergence handling lives in
 
 ## Differences (all additive/cosmetic)
 
-| Aspect | TS3 | TS6 | tsq handling |
+| Aspect | TS3 | TS6 | atsq handling |
 |---|---|---|---|
 | Greeting line 2 | `Welcome to the TeamSpeak 3 ServerQuery interface, ...` | `Welcome to the TeamSpeak ServerQuery interface, ...` (no "3") | `sniff_dialect()` keys on the `TeamSpeak 3 ` prefix |
 | `whoami` | — | adds `virtualserver_uuid=<uuid>` | none needed (schema-free rows) |
 | `clientinfo` / `notifycliententerview` | — | adds `client_is_streaming=0` | none needed |
 | `client_unique_identifier` length | SHA-1 base64 (28 chars) | SHA-256 base64 (44 chars) for voice clients | none needed (opaque string) |
 | Server config | `TS3SERVER_*` env, password only in first-boot log, allowlist at `/var/ts3server/query_ip_allowlist.txt`, query protocols opt-in `raw,ssh` | `TSSERVER_*` env, deterministic `TSSERVER_QUERY_ADMIN_PASSWORD`, allowlist at `/var/tsserver/query_ip_allowlist.txt`, `TSSERVER_QUERY_SSH_ENABLED=1`, no raw protocol at all | `docker/docker-compose.test.yml` |
-| **leftview on disconnect** (query clients) | emitted immediately for `quit` (reasonid=8), TCP abort/RST (reasonid=3) **and graceful SSH close** (reasonid=3) | emitted for `quit` (8) and abort/RST (3); **NOT emitted at all for a graceful SSH close** (verified: nothing within 65s) | `RawConnection.close()` sends a best-effort `quit` before closing, so tsq disconnects are observable on both generations |
+| **leftview on disconnect** (query clients) | emitted immediately for `quit` (reasonid=8), TCP abort/RST (reasonid=3) **and graceful SSH close** (reasonid=3) | emitted for `quit` (8) and abort/RST (3); **NOT emitted at all for a graceful SSH close** (verified: nothing within 65s) | `RawConnection.close()` sends a best-effort `quit` before closing, so atsq disconnects are observable on both generations |
 
 ## Consequences for the API (freeze decisions)
 

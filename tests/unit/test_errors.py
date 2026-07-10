@@ -1,6 +1,6 @@
 import pytest
 
-from tsq.errors import (
+from atsq.errors import (
     ConnectionClosedError,
     FloodError,
     QueryError,

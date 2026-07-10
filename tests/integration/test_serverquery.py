@@ -6,20 +6,20 @@ import asyncio
 
 import pytest
 
-import tsq
+import atsq
 from tests.integration.conftest import ServerTarget
 
 pytestmark = pytest.mark.integration
 
 
 class TestSession:
-    async def test_connect_use_whoami(self, client: tsq.Client, server: ServerTarget) -> None:
+    async def test_connect_use_whoami(self, client: atsq.Client, server: ServerTarget) -> None:
         me = await client.whoami()
         assert me["virtualserver_id"] == "1"
         assert me["client_login_name"] == "serveradmin"
         assert int(me["client_id"]) > 0
 
-    async def test_dialect_detection(self, client: tsq.Client, server: ServerTarget) -> None:
+    async def test_dialect_detection(self, client: atsq.Client, server: ServerTarget) -> None:
         assert client.dialect is server.expected_dialect
         version = (await client.version())["version"]
         if server.name == "ts3":
@@ -27,15 +27,15 @@ class TestSession:
         else:
             assert version.startswith("6.")
 
-    async def test_clientlist_contains_self(self, client: tsq.Client) -> None:
+    async def test_clientlist_contains_self(self, client: atsq.Client) -> None:
         me = await client.whoami()
         rows = await client.client_list("uid")
         own = [row for row in rows if row["clid"] == me["client_id"]]
         assert own, rows
-        assert own[0]["client_type"] == tsq.ClientType.QUERY
+        assert own[0]["client_type"] == atsq.ClientType.QUERY
         assert "client_unique_identifier" in own[0]  # -uid option honoured
 
-    async def test_client_info_chain(self, client: tsq.Client) -> None:
+    async def test_client_info_chain(self, client: atsq.Client) -> None:
         """client_info -> client_dbid_from_uid -> server_groups_by_client."""
         me = await client.whoami()
         info = await client.client_info(me["client_id"])
@@ -48,11 +48,11 @@ class TestSession:
         groups = await client.server_groups_by_client(dbid)
         assert any(row["name"] == "Admin Server Query" for row in groups)
 
-    async def test_send_keepalive(self, client: tsq.Client) -> None:
+    async def test_send_keepalive(self, client: atsq.Client) -> None:
         await client.send_keepalive()
         assert (await client.whoami())["virtualserver_id"] == "1"
 
-    async def test_greeting_exposed(self, client: tsq.Client) -> None:
+    async def test_greeting_exposed(self, client: atsq.Client) -> None:
         greeting = client.connection.greeting
         assert greeting[0] == b"TS3"  # literally, on BOTH generations
         assert len(greeting) == 2
@@ -60,19 +60,19 @@ class TestSession:
 
 class TestEscaping:
     async def test_channel_name_round_trip(
-        self, client: tsq.Client, run_token: str
+        self, client: atsq.Client, run_token: str
     ) -> None:
         # Space, pipe, slash, backslash. No control chars: both generations
         # sanitize e.g. tabs OUT of channel names server-side (verified),
         # so those are covered by the text-message round-trip instead.
-        name = f"tsq it |{run_token}| a/b\\c end"
+        name = f"atsq it |{run_token}| a/b\\c end"
         cid = await client.channel_create(name, channel_flag_permanent=1)
         rows = await client.exec("channellist")
         names = {row["cid"]: row["channel_name"] for row in rows}
         assert names[cid] == name
 
-    async def test_error_msg_unescaped(self, client: tsq.Client) -> None:
-        with pytest.raises(tsq.QueryError) as excinfo:
+    async def test_error_msg_unescaped(self, client: atsq.Client) -> None:
+        with pytest.raises(atsq.QueryError) as excinfo:
             await client.exec("thisisnotacommand")
         assert excinfo.value.error_id == 256
         assert "command not found" in str(excinfo.value)
@@ -80,13 +80,13 @@ class TestEscaping:
 
 class TestChannelWrappers:
     async def test_channel_perm_and_move_wrappers(
-        self, client: tsq.Client, run_token: str
+        self, client: atsq.Client, run_token: str
     ) -> None:
         parent = await client.channel_create(
-            f"tsq wrap parent {run_token}", channel_flag_permanent=1
+            f"atsq wrap parent {run_token}", channel_flag_permanent=1
         )
         child = await client.channel_create(
-            f"tsq wrap child {run_token}", channel_flag_permanent=1
+            f"atsq wrap child {run_token}", channel_flag_permanent=1
         )
         await client.channel_add_perm(parent, "i_channel_needed_join_power", 42)
         perms = await client.exec("channelpermlist", "permsid", cid=parent)
@@ -111,7 +111,7 @@ class TestQueryClientContracts:
     the firephenix bot relies on error-handling-wise.
     """
 
-    async def test_group_wrappers_reject_query_dbid(self, client: tsq.Client) -> None:
+    async def test_group_wrappers_reject_query_dbid(self, client: atsq.Client) -> None:
         me = await client.whoami()
         dbid = me["client_database_id"]
         # (expected error ids taken from the recorded probe transcripts)
@@ -121,14 +121,14 @@ class TestQueryClientContracts:
             (client.set_client_channel_group(5, 1, dbid), 512),
             (client.channel_client_add_perm(1, dbid, "i_channel_join_power", 1), 512),
         ):
-            with pytest.raises(tsq.QueryError) as excinfo:
+            with pytest.raises(atsq.QueryError) as excinfo:
                 await call
             assert excinfo.value.error_id == expected, str(excinfo.value)
 
-    async def test_client_kick_rejects_query_client(self, client: tsq.Client) -> None:
+    async def test_client_kick_rejects_query_client(self, client: atsq.Client) -> None:
         me = await client.whoami()
-        with pytest.raises(tsq.QueryError) as excinfo:
-            await client.client_kick(me["client_id"], reasonmsg="tsq test")
+        with pytest.raises(atsq.QueryError) as excinfo:
+            await client.client_kick(me["client_id"], reasonmsg="atsq test")
         assert excinfo.value.error_id == 516
 
 
@@ -136,7 +136,7 @@ class TestTransportLifecycle:
     async def test_close_idempotent_and_io_after_close_raises(
         self, server: ServerTarget
     ) -> None:
-        from tsq.transport import SshTransport
+        from atsq.transport import SshTransport
 
         transport = await SshTransport.connect(
             server.host, server.port, username="serveradmin", password=server.password
@@ -147,37 +147,37 @@ class TestTransportLifecycle:
         await transport.close()
         await transport.close()  # idempotent
         assert transport.is_closed
-        with pytest.raises(tsq.ConnectionClosedError):
+        with pytest.raises(atsq.ConnectionClosedError):
             await transport.send_line(b"whoami")
-        with pytest.raises(tsq.ConnectionClosedError):
+        with pytest.raises(atsq.ConnectionClosedError):
             await transport.read_line()  # buffer empty -> closed error
 
 
 class TestErrors:
     async def test_invalid_server_id(self, server: ServerTarget) -> None:
-        c = await tsq.connect(server.host, server.port, password=server.password)
+        c = await atsq.connect(server.host, server.port, password=server.password)
         try:
-            with pytest.raises(tsq.QueryError):
+            with pytest.raises(atsq.QueryError):
                 await c.use(999)
         finally:
             await c.close()
 
     async def test_wrong_password_fails_at_ssh_layer(self, server: ServerTarget) -> None:
         with pytest.raises(Exception):  # noqa: B017 - asyncssh auth error type
-            await tsq.connect(server.host, server.port, password="definitely-wrong")
+            await atsq.connect(server.host, server.port, password="definitely-wrong")
 
-    async def test_connection_usable_after_query_error(self, client: tsq.Client) -> None:
-        with pytest.raises(tsq.QueryError):
+    async def test_connection_usable_after_query_error(self, client: atsq.Client) -> None:
+        with pytest.raises(atsq.QueryError):
             await client.exec("thisisnotacommand")
         assert (await client.whoami())["virtualserver_id"] == "1"
 
 
 class TestEvents:
     async def test_join_and_leave_events_from_second_client(
-        self, client: tsq.Client, server: ServerTarget
+        self, client: atsq.Client, server: ServerTarget
     ) -> None:
         await client.server_notify_register("server")
-        second = await tsq.connect(
+        second = await atsq.connect(
             server.host, server.port, password=server.password, server_id=1
         )
         try:
@@ -192,19 +192,19 @@ class TestEvents:
             await second.close()
         left = await client.wait_for_event(timeout=10)
         assert left.name == "clientleftview"
-        assert left["reasonid"] == tsq.ReasonId.QUIT
-        assert left["reasonid"] in tsq.LEAVE_REASONS
+        assert left["reasonid"] == atsq.ReasonId.QUIT
+        assert left["reasonid"] in atsq.LEAVE_REASONS
         assert left["clid"] == joined_clid
 
     async def test_text_message_event(
-        self, client: tsq.Client, server: ServerTarget
+        self, client: atsq.Client, server: ServerTarget
     ) -> None:
         await client.server_notify_register("textserver")
-        second = await tsq.connect(
+        second = await atsq.connect(
             server.host, server.port, password=server.password, server_id=1
         )
         try:
-            payload = "tsq it |pipe| a/b\\c\tend"
+            payload = "atsq it |pipe| a/b\\c\tend"
             await second.send_text_message(0, payload, targetmode=3)
             while True:
                 event = await client.wait_for_event(timeout=10)
@@ -214,7 +214,7 @@ class TestEvents:
         finally:
             await second.close()
 
-    async def test_events_iterator(self, client: tsq.Client, server: ServerTarget) -> None:
+    async def test_events_iterator(self, client: atsq.Client, server: ServerTarget) -> None:
         await client.server_notify_register("textserver")
         await client.send_text_message(0, "iterate me", targetmode=3)
         async for event in client.events():
@@ -230,23 +230,23 @@ class TestEvents:
         `exec("quit")` makes the server close the connection - run_forever
         must recover, re-run use/servernotifyregister, and keep dispatching.
         """
-        client = tsq.Client(
+        client = atsq.Client(
             server.host,
             server.port,
             password=server.password,
             server_id=1,
             register_events="server",
-            nickname=f"tsq rf {run_token}",
+            nickname=f"aatsq rf {run_token}",
         )
         readies = 0
         reconnected = asyncio.Event()
         joined = asyncio.Event()
 
         @client.on("cliententerview")
-        async def on_join(event: tsq.Event) -> None:
+        async def on_join(event: atsq.Event) -> None:
             joined.set()
 
-        async def on_ready(c: tsq.Client) -> None:
+        async def on_ready(c: atsq.Client) -> None:
             nonlocal readies
             readies += 1
             if readies == 2:
@@ -263,7 +263,7 @@ class TestEvents:
             assert readies >= 1, "run_forever never became ready"
 
             # a second client joining reaches the @on handler
-            second = await tsq.connect(
+            second = await atsq.connect(
                 server.host, server.port, password=server.password, server_id=1
             )
             await second.close()
@@ -272,7 +272,7 @@ class TestEvents:
             # server-side disconnect -> automatic reconnect
             import contextlib
 
-            with contextlib.suppress(tsq.TsqError):
+            with contextlib.suppress(atsq.TsqError):
                 await client.exec("quit")
             await asyncio.wait_for(reconnected.wait(), timeout=15)
             assert (await client.whoami())["virtualserver_id"] == "1"
@@ -281,7 +281,7 @@ class TestEvents:
             await asyncio.wait_for(task, timeout=5)
 
     async def test_events_flow_while_commands_run(
-        self, client: tsq.Client, server: ServerTarget
+        self, client: atsq.Client, server: ServerTarget
     ) -> None:
         """Interleaving: events route correctly while exec() traffic runs."""
         await client.server_notify_register("server")
@@ -293,7 +293,7 @@ class TestEvents:
         second = None
         churn_task = asyncio.create_task(churn())
         try:
-            second = await tsq.connect(
+            second = await atsq.connect(
                 server.host, server.port, password=server.password, server_id=1
             )
             enter = await client.wait_for_event(timeout=10)
@@ -308,14 +308,14 @@ class TestClientOptions:
     async def test_nickname_and_multi_event_registration(
         self, server: ServerTarget, run_token: str
     ) -> None:
-        nick = f"tsq {run_token}"
-        c = await tsq.connect(
+        nick = f"atsq {run_token}"
+        c = await atsq.connect(
             server.host,
             server.port,
             password=server.password,
             server_id=1,
             nickname=nick,
-            register_events=tsq.ALL_EVENTS,
+            register_events=atsq.ALL_EVENTS,
         )
         try:
             assert (await c.whoami())["client_nickname"] == nick
@@ -328,7 +328,7 @@ class TestClientOptions:
             await c.close()
 
     async def test_select_server_by_voice_port(self, server: ServerTarget) -> None:
-        c = await tsq.connect(
+        c = await atsq.connect(
             server.host, server.port, password=server.password, server_port=9987
         )
         try:
@@ -339,7 +339,7 @@ class TestClientOptions:
 
 class TestSnapshots:
     async def test_snapshot_create_and_deploy_round_trip(
-        self, client: tsq.Client
+        self, client: atsq.Client
     ) -> None:
         """Snapshots need no special payload handling - plain exec works."""
         rows = await client.exec("serversnapshotcreate")
@@ -359,10 +359,10 @@ class TestSnapshots:
 
 class TestPipelining:
     async def test_piped_permission_blocks_apply_in_one_command(
-        self, client: tsq.Client, run_token: str
+        self, client: atsq.Client, run_token: str
     ) -> None:
         cid = await client.channel_create(
-            f"tsq pipe {run_token}", channel_flag_permanent=1
+            f"atsq pipe {run_token}", channel_flag_permanent=1
         )
         await client.exec(
             "channeladdperm",
@@ -380,51 +380,51 @@ class TestPipelining:
 
 class TestFileTransfer:
     @pytest.fixture
-    def ft(self, client: tsq.Client, server: ServerTarget) -> tsq.FileTransfer:
+    def ft(self, client: atsq.Client, server: ServerTarget) -> atsq.FileTransfer:
         if server.ft_port is None:
             pytest.skip(f"{server.name} file-transfer port not configured")
-        return tsq.FileTransfer(client, port_override=server.ft_port, timeout=20.0)
+        return atsq.FileTransfer(client, port_override=server.ft_port, timeout=20.0)
 
     async def test_upload_list_download_delete_round_trip(
-        self, client: tsq.Client, ft: tsq.FileTransfer, run_token: str
+        self, client: atsq.Client, ft: atsq.FileTransfer, run_token: str
     ) -> None:
         cid = int(await client.channel_create(
-            f"tsq ft {run_token}", channel_flag_permanent=1
+            f"atsq ft {run_token}", channel_flag_permanent=1
         ))
         payload = bytes(range(256)) * 64  # 16 KiB covering every byte value
-        await ft.upload(payload, "/tsq-test.bin", cid=cid)
+        await ft.upload(payload, "/atsq-test.bin", cid=cid)
 
         files = await ft.file_list(cid=cid)
         names = {row["name"]: row for row in files}
-        assert "tsq-test.bin" in names
-        assert names["tsq-test.bin"]["size"] == str(len(payload))
+        assert "atsq-test.bin" in names
+        assert names["atsq-test.bin"]["size"] == str(len(payload))
 
-        assert await ft.download("/tsq-test.bin", cid=cid) == payload
+        assert await ft.download("/atsq-test.bin", cid=cid) == payload
 
-        info = await ft.file_info("/tsq-test.bin", cid=cid)
+        info = await ft.file_info("/atsq-test.bin", cid=cid)
         assert info["size"] == str(len(payload))
 
-        await ft.delete_file("/tsq-test.bin", cid=cid)
+        await ft.delete_file("/atsq-test.bin", cid=cid)
         remaining = await ft.file_list(cid=cid)
-        assert all(row["name"] != "tsq-test.bin" for row in remaining)
+        assert all(row["name"] != "atsq-test.bin" for row in remaining)
 
     async def test_directory_create_and_rename(
-        self, client: tsq.Client, ft: tsq.FileTransfer, run_token: str
+        self, client: atsq.Client, ft: atsq.FileTransfer, run_token: str
     ) -> None:
         cid = int(await client.channel_create(
-            f"tsq ftdir {run_token}", channel_flag_permanent=1
+            f"atsq ftdir {run_token}", channel_flag_permanent=1
         ))
         await ft.create_directory("/sub", cid=cid)
-        await ft.upload(b"hello tsq", "/sub/a.txt", cid=cid)
+        await ft.upload(b"hello atsq", "/sub/a.txt", cid=cid)
         await ft.rename_file("/sub/a.txt", "/sub/b.txt", cid=cid)
         rows = await ft.file_list(cid=cid, path="/sub")
         assert [row["name"] for row in rows] == ["b.txt"]
-        assert await ft.download("/sub/b.txt", cid=cid) == b"hello tsq"
+        assert await ft.download("/sub/b.txt", cid=cid) == b"hello atsq"
 
-    async def test_icon_round_trip(self, ft: tsq.FileTransfer) -> None:
+    async def test_icon_round_trip(self, ft: atsq.FileTransfer) -> None:
         import zlib
 
-        icon = b"\x89PNG tsq fake icon " + bytes(range(64))
+        icon = b"\x89PNG aatsq fake icon " + bytes(range(64))
         icon_id = await ft.upload_icon(icon)
         assert icon_id == zlib.crc32(icon)
         assert await ft.download_icon(icon_id) == icon
@@ -437,20 +437,20 @@ class TestFileTransfer:
         assert all(row["name"] != f"icon_{icon_id}" for row in remaining)
 
     async def test_overwrite_false_surfaces_conflict(
-        self, client: tsq.Client, ft: tsq.FileTransfer, run_token: str
+        self, client: atsq.Client, ft: atsq.FileTransfer, run_token: str
     ) -> None:
         cid = int(await client.channel_create(
-            f"tsq ftow {run_token}", channel_flag_permanent=1
+            f"atsq ftow {run_token}", channel_flag_permanent=1
         ))
         await ft.upload(b"one", "/dup.bin", cid=cid)
-        with pytest.raises(tsq.QueryError):
+        with pytest.raises(atsq.QueryError):
             await ft.upload(b"two", "/dup.bin", cid=cid, overwrite=False)
         # the original file is untouched and the connection stays usable
         assert await ft.download("/dup.bin", cid=cid) == b"one"
 
 
 class TestFlood:
-    async def test_rapid_commands_no_desync(self, client: tsq.Client) -> None:
+    async def test_rapid_commands_no_desync(self, client: atsq.Client) -> None:
         """30 back-to-back commands: no hang, no protocol desync.
 
         The test tolerates FloodError (server policy) but requires the
@@ -461,7 +461,7 @@ class TestFlood:
             try:
                 me = await client.whoami()
                 assert me["virtualserver_id"] == "1"
-            except tsq.FloodError:
+            except atsq.FloodError:
                 flood_errors += 1
                 await asyncio.sleep(1)
         assert (await client.whoami())["virtualserver_id"] == "1"

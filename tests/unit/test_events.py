@@ -1,4 +1,4 @@
-from tsq.events import Event
+from atsq.events import Event
 
 
 def test_from_line_with_properties() -> None:

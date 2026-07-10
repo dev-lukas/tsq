@@ -15,8 +15,8 @@ from pathlib import Path
 
 import pytest
 
-from tsq.events import Event
-from tsq.protocol import (
+from atsq.events import Event
+from atsq.protocol import (
     is_error_line,
     is_event_line,
     parse_data_line,

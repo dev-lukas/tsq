@@ -2,15 +2,15 @@ import asyncio
 
 import pytest
 
-from tests.fake.fake_transport import FakeTransport
-from tsq.connection import RawConnection
-from tsq.dialect import Dialect
-from tsq.errors import (
+from atsq.connection import RawConnection
+from atsq.dialect import Dialect
+from atsq.errors import (
     ConnectionClosedError,
     FloodError,
     QueryError,
     QueryTimeoutError,
 )
+from tests.fake.fake_transport import FakeTransport
 
 OK = b"error id=0 msg=ok"
 

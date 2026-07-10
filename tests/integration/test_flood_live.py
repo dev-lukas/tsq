@@ -14,27 +14,27 @@ import os
 
 import pytest
 
-import tsq
+import atsq
 
 pytestmark = pytest.mark.integration
 
 
 def _target() -> tuple[str, int, str]:
-    host = os.environ.get("TSQ_TS3STRICT_HOST")
+    host = os.environ.get("ATSQ_TS3STRICT_HOST")
     if not host:
-        pytest.skip("strict server not configured (set TSQ_TS3STRICT_HOST/PORT/PASSWORD)")
-    return host, int(os.environ["TSQ_TS3STRICT_PORT"]), os.environ["TSQ_TS3STRICT_PASSWORD"]
+        pytest.skip("strict server not configured (set ATSQ_TS3STRICT_HOST/PORT/PASSWORD)")
+    return host, int(os.environ["ATSQ_TS3STRICT_PORT"]), os.environ["ATSQ_TS3STRICT_PASSWORD"]
 
 
 async def test_flood_error_surfaces_with_retry_hint() -> None:
     host, port, password = _target()
-    client = await tsq.connect(host, port, password=password, server_id=1, flood_retries=0)
+    client = await atsq.connect(host, port, password=password, server_id=1, flood_retries=0)
     try:
-        flood: tsq.FloodError | None = None
+        flood: atsq.FloodError | None = None
         for _ in range(60):
             try:
                 await client.whoami()
-            except tsq.FloodError as err:
+            except atsq.FloodError as err:
                 flood = err
                 break
         assert flood is not None, "no 524 within 60 rapid commands on the strict server"
@@ -48,7 +48,7 @@ async def test_flood_error_surfaces_with_retry_hint() -> None:
 
 async def test_auto_retry_absorbs_flood_transparently() -> None:
     host, port, password = _target()
-    client = await tsq.connect(host, port, password=password, server_id=1, flood_retries=5)
+    client = await atsq.connect(host, port, password=password, server_id=1, flood_retries=5)
     try:
         # Way past the flood threshold (~10 cmds / 3s): every call must
         # still succeed because exec() waits and retries internally.

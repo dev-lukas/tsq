@@ -2,10 +2,10 @@ import asyncio
 
 import pytest
 
+from atsq.client import Client
+from atsq.errors import ConnectionClosedError, QueryError
+from atsq.events import Event
 from tests.fake.fake_transport import FakeTransport
-from tsq.client import Client
-from tsq.errors import ConnectionClosedError, QueryError
-from tsq.events import Event
 
 OK = b"error id=0 msg=ok"
 
@@ -117,7 +117,7 @@ async def test_server_id_and_port_mutually_exclusive() -> None:
 
 
 async def test_all_events_constant_registers_every_source() -> None:
-    from tsq import ALL_EVENTS
+    from atsq import ALL_EVENTS
 
     transport = FakeTransport()
     transport.when(b"", [OK])
@@ -302,7 +302,7 @@ async def test_close_stops_run_forever_during_backoff() -> None:
 
 
 async def test_client_delegations_and_props() -> None:
-    from tsq.dialect import Dialect
+    from atsq.dialect import Dialect
 
     farm = TransportFarm()
     client = make_client(farm)
@@ -343,7 +343,7 @@ async def test_single_channel_tuple_registration() -> None:
 
 
 async def test_connect_function_returns_started_client() -> None:
-    from tsq.client import connect
+    from atsq.client import connect
 
     farm = TransportFarm()
     client = await connect(
@@ -355,7 +355,7 @@ async def test_connect_function_returns_started_client() -> None:
 
 
 async def test_connect_function_cleans_up_on_failure() -> None:
-    from tsq.client import connect
+    from atsq.client import connect
 
     farm = TransportFarm(banned_first=1)
     with pytest.raises(QueryError):

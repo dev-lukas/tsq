@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator, Mapping
 
-from tsq.protocol import parse_data_line
+from atsq.protocol import parse_data_line
 
 __all__ = ["Event"]
 

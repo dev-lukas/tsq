@@ -2,7 +2,7 @@
 
 The only real transport is SSH (the single line-protocol interface TS6 still
 offers; opt-in on TS3 ≥ 3.3). The :class:`Transport` protocol is the seam
-used by the test suite to drive :class:`~tsq.connection.RawConnection`
+used by the test suite to drive :class:`~atsq.connection.RawConnection`
 without any network.
 """
 
@@ -13,7 +13,7 @@ from typing import Protocol, Self, runtime_checkable
 
 import asyncssh
 
-from tsq.errors import ConnectionClosedError
+from atsq.errors import ConnectionClosedError
 
 __all__ = ["SshTransport", "Transport"]
 

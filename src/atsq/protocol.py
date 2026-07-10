@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 
-from tsq.escape import escape, unescape
+from atsq.escape import escape, unescape
 
 __all__ = [
     "ErrorLine",

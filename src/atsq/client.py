@@ -4,17 +4,17 @@ Two usage styles:
 
 One-shot (context manager)::
 
-    async with await tsq.connect("ts.example.com", password="...",
+    async with await atsq.connect("ts.example.com", password="...",
                                  server_id=1) as ts:
         rows = await ts.client_list()
 
 Long-running bot with listeners and automatic reconnect::
 
-    client = tsq.Client("ts.example.com", password="...", server_id=1,
+    client = atsq.Client("ts.example.com", password="...", server_id=1,
                         register_events="server")
 
     @client.on("cliententerview")
-    async def on_join(event: tsq.Event) -> None:
+    async def on_join(event: atsq.Event) -> None:
         ...
 
     await client.run_forever()
@@ -26,14 +26,14 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Any, Self
 
-from tsq.connection import (
+from atsq.connection import (
     DEFAULT_COMMAND_TIMEOUT,
     DEFAULT_KEEPALIVE_INTERVAL,
     RawConnection,
 )
-from tsq.dialect import Dialect
-from tsq.errors import ConnectionClosedError, QueryError
-from tsq.transport import SshTransport, Transport
+from atsq.dialect import Dialect
+from atsq.errors import ConnectionClosedError, QueryError
+from atsq.transport import SshTransport, Transport
 
 if TYPE_CHECKING:
     from collections.abc import (
@@ -46,7 +46,7 @@ if TYPE_CHECKING:
     )
     from types import TracebackType
 
-    from tsq.events import Event
+    from atsq.events import Event
 
     EventHandler = Callable[["Event"], Awaitable[None]]
     TransportFactory = Callable[[], Awaitable[Transport]]
@@ -171,7 +171,7 @@ class Client:
                 except QueryError as err:
                     # A nickname collision (e.g. a lingering previous session)
                     # must not break the connection - the nick is cosmetic.
-                    LOG.warning("tsq: could not set nickname %r: %s", self._nickname, err)
+                    LOG.warning("atsq: could not set nickname %r: %s", self._nickname, err)
             for event, channel_id in self._register_events:
                 await conn.exec("servernotifyregister", event=event, id=channel_id)
         except BaseException:
@@ -280,7 +280,7 @@ class Client:
                 break
             wait = banned_delay if error is not None and _is_banned(error) else delay
             LOG.warning(
-                "tsq: connection lost%s; reconnecting in %.0fs",
+                "atsq: connection lost%s; reconnecting in %.0fs",
                 f" ({error})" if error is not None else "",
                 wait,
             )
@@ -293,7 +293,7 @@ class Client:
             try:
                 await handler(event)
             except Exception:
-                LOG.exception("tsq: error in %r handler %r", event.name, handler)
+                LOG.exception("atsq: error in %r handler %r", event.name, handler)
 
     # -- generic command ----------------------------------------------------
 

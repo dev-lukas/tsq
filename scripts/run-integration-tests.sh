@@ -61,14 +61,14 @@ if [ -z "$ts3_password" ] || [ -z "$ts3strict_password" ]; then
   exit 1
 fi
 
-export TSQ_TS3_HOST=127.0.0.1 TSQ_TS3_PORT="$ts3_port" TSQ_TS3_PASSWORD="$ts3_password"
-export TSQ_TS6_HOST=127.0.0.1 TSQ_TS6_PORT="$ts6_port" TSQ_TS6_PASSWORD=tsq-ci-password
-export TSQ_TS3_FT_PORT="$ts3_ft_port" TSQ_TS6_FT_PORT="$ts6_ft_port"
-export TSQ_TS3STRICT_HOST=127.0.0.1 TSQ_TS3STRICT_PORT="$ts3strict_port"
-export TSQ_TS3STRICT_PASSWORD="$ts3strict_password"
+export ATSQ_TS3_HOST=127.0.0.1 ATSQ_TS3_PORT="$ts3_port" ATSQ_TS3_PASSWORD="$ts3_password"
+export ATSQ_TS6_HOST=127.0.0.1 ATSQ_TS6_PORT="$ts6_port" ATSQ_TS6_PASSWORD=atsq-ci-password
+export ATSQ_TS3_FT_PORT="$ts3_ft_port" ATSQ_TS6_FT_PORT="$ts6_ft_port"
+export ATSQ_TS3STRICT_HOST=127.0.0.1 ATSQ_TS3STRICT_PORT="$ts3strict_port"
+export ATSQ_TS3STRICT_PASSWORD="$ts3strict_password"
 
 # Run the ENTIRE suite (unit + fake + integration) under one coverage gate:
 # with the live tests included, every module - transport included - must be
 # covered. This is what enforces "each function has a unit AND a live test".
 echo "Running full suite (unit + fake + integration) with coverage gate..."
-uv run --frozen pytest -m "not slow" -q --cov=tsq --cov-report=term-missing --cov-fail-under=99
+uv run --frozen pytest -m "not slow" -q --cov=atsq --cov-report=term-missing --cov-fail-under=99

@@ -3,10 +3,10 @@ from collections.abc import AsyncIterator
 
 import pytest
 
+from atsq.client import Client
+from atsq.errors import ConnectionClosedError, QueryError, QueryTimeoutError
+from atsq.filetransfer import FileTransfer
 from tests.fake.fake_transport import FakeTransport
-from tsq.client import Client
-from tsq.errors import ConnectionClosedError, QueryError, QueryTimeoutError
-from tsq.filetransfer import FileTransfer
 
 OK = b"error id=0 msg=ok"
 UPLOAD_KEY = "u" * 32

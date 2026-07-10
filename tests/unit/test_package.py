@@ -1,5 +1,5 @@
-import tsq
+import atsq
 
 
 def test_version() -> None:
-    assert tsq.__version__
+    assert atsq.__version__

@@ -1,9 +1,9 @@
-# tsq
+# atsq
 
 Asyncio TeamSpeak ServerQuery client for **TeamSpeak 3** and **TeamSpeak 6**, over SSH.
 
 TeamSpeak 6 removed the classic raw/telnet ServerQuery — SSH query (port 10022) is the
-only line-protocol interface left. `tsq` speaks that protocol against both server
+only line-protocol interface left. `atsq` speaks that protocol against both server
 generations with one async API, runs on modern Python (3.12–3.14+), and its whole test
 suite executes against real `teamspeak:3.13` and `teamspeaksystems/teamspeak6-server`
 containers.
@@ -19,7 +19,7 @@ containers.
 ## Install
 
 ```
-uv add tsq          # or: pip install tsq
+uv add atsq          # or: pip install atsq
 ```
 
 Requires Python ≥ 3.12. The only runtime dependency is
@@ -30,9 +30,9 @@ Requires Python ≥ 3.12. The only runtime dependency is
 One-shot administrative session:
 
 ```python
-import tsq
+import atsq
 
-async with await tsq.connect("ts.example.com", 10022,
+async with await atsq.connect("ts.example.com", 10022,
                              password="...", server_id=1) as ts:
     for row in await ts.client_list("uid"):
         print(row["clid"], row["client_nickname"])
@@ -42,18 +42,18 @@ async with await tsq.connect("ts.example.com", 10022,
 Long-running bot with events and automatic reconnect:
 
 ```python
-client = tsq.Client("ts.example.com", 10022, password="...",
+client = atsq.Client("ts.example.com", 10022, password="...",
                     server_id=1,                    # or server_port=9987
                     nickname="My Bot",              # re-applied on reconnect
-                    register_events=tsq.ALL_EVENTS) # or "server", or a list
+                    register_events=atsq.ALL_EVENTS) # or "server", or a list
 
 @client.on("cliententerview")
-async def on_join(event: tsq.Event) -> None:
+async def on_join(event: atsq.Event) -> None:
     if event.get("reasonid") == "0" and event.get("client_type") == "0":
         print("joined:", event["client_unique_identifier"])
 
 @client.on("clientleftview")
-async def on_leave(event: tsq.Event) -> None:
+async def on_leave(event: atsq.Event) -> None:
     print("left:", event.get("clid"))
 
 await client.run_forever()   # reconnects with backoff; keepalive automatic
@@ -83,7 +83,7 @@ Wire constants are available as `StrEnum`s that compare directly against
 event/row values:
 
 ```python
-from tsq import ReasonId, TargetMode, ClientType, LEAVE_REASONS
+from atsq import ReasonId, TargetMode, ClientType, LEAVE_REASONS
 
 if event["reasonid"] == ReasonId.CONNECT and event["client_type"] == ClientType.VOICE:
     ...
@@ -94,11 +94,11 @@ if event.get("reasonid") in LEAVE_REASONS:
 File transfer (icons, avatars, channel files) — same API against TS3 and TS6:
 
 ```python
-ft = tsq.FileTransfer(client)
+ft = atsq.FileTransfer(client)
 icon_id = await ft.upload_icon(png_bytes)            # crc32-named, returns the id
-data = await ft.download("/tsq.bin", cid=42)
+data = await ft.download("/atsq.bin", cid=42)
 rows = await ft.file_list(cid=42, path="/")          # [] for empty dirs
-await ft.delete_file("/tsq.bin", cid=42)
+await ft.delete_file("/atsq.bin", cid=42)
 ```
 
 ### Errors
@@ -106,15 +106,15 @@ await ft.delete_file("/tsq.bin", cid=42)
 ```python
 try:
     await ts.use(99)
-except tsq.QueryError as e:        # error id != 0; str(e) carries the server msg
+except atsq.QueryError as e:        # error id != 0; str(e) carries the server msg
     print(e.error_id, e.msg)
-except tsq.QueryTimeoutError:      # no response in time (connection is closed)
+except atsq.QueryTimeoutError:      # no response in time (connection is closed)
     ...
-except tsq.ConnectionClosedError:  # connection gone
+except atsq.ConnectionClosedError:  # connection gone
     ...
 ```
 
-`tsq.FloodError` (a `QueryError`, id 524) signals server flood protection — add your
+`atsq.FloodError` (a `QueryError`, id 524) signals server flood protection — add your
 client's IP to the server's `query_ip_allowlist.txt` to be exempt.
 
 ### Defaults worth knowing
@@ -131,7 +131,7 @@ client's IP to the server's `query_ip_allowlist.txt` to be exempt.
   containing "banned" waits 300 s. `use`/`servernotifyregister` and `on_ready` re-run
   after every reconnect.
 - **Host keys**: verification is off by default (TeamSpeak servers generate ephemeral
-  query host keys). Pin one in production: `tsq.connect(..., known_hosts=...)`
+  query host keys). Pin one in production: `atsq.connect(..., known_hosts=...)`
   (forwarded to asyncssh).
 - **close() sends `quit`**: on TS6 a query client that silently drops the SSH
   connection never produces a `notifyclientleftview`; a clean `quit` does (on both
@@ -139,7 +139,7 @@ client's IP to the server's `query_ip_allowlist.txt` to be exempt.
 
 ## TS3 vs TS6
 
-Probed against real servers — the wire dialects are near-identical, and `tsq`
+Probed against real servers — the wire dialects are near-identical, and `atsq`
 auto-detects the generation from the greeting (`client.dialect`). All recorded
 differences and server-config notes live in [docs/dialects.md](docs/dialects.md).
 
@@ -148,19 +148,19 @@ Enable SSH query on a TS3 server with `TS3SERVER_QUERY_PROTOCOLS=raw,ssh`; on TS
 
 ## Migrating from py-ts3
 
-| py-ts3 | tsq |
+| py-ts3 | atsq |
 |---|---|
-| `TS3ServerConnection("telnet://user:pass@host:10011")` | `await tsq.connect(host, 10022, username=..., password=...)` (SSH) |
+| `TS3ServerConnection("telnet://user:pass@host:10011")` | `await atsq.connect(host, 10022, username=..., password=...)` (SSH) |
 | `conn.exec_("clientlist", "uid")` | `await ts.exec("clientlist", "uid")` or `await ts.client_list("uid")` |
 | response `resp[0]["cldbid"]` | same shape: `rows[0]["cldbid"]` (`list[dict[str, str]]`) |
 | `conn.wait_for_event(timeout=240)` | `await client.wait_for_event(timeout=240)` or `@client.on(...)` |
 | `event[0]["reasonid"]` | `event["reasonid"]` (Event is a `Mapping[str, str]`) |
 | `conn.send_keepalive()` | automatic (or `await ts.send_keepalive()`) |
-| `ts3.query.TS3QueryError` | `tsq.QueryError` (str() still contains the server msg) |
-| `ts3.query.TS3TimeoutError` | `tsq.QueryTimeoutError` |
+| `ts3.query.TS3QueryError` | `atsq.QueryError` (str() still contains the server msg) |
+| `ts3.query.TS3TimeoutError` | `atsq.QueryTimeoutError` |
 | query builder `.pipe()` | `exec(cmd, blocks=[{...}, {...}], **shared)` |
-| `ts3.definitions` constants | `tsq.ReasonId` / `TargetMode` / `ClientType` / `LEAVE_REASONS` |
-| `ts3.filetransfer.TS3FileTransfer` | `tsq.FileTransfer` (asyncio, TS3+TS6) |
+| `ts3.definitions` constants | `atsq.ReasonId` / `TargetMode` / `ClientType` / `LEAVE_REASONS` |
+| `ts3.filetransfer.TS3FileTransfer` | `atsq.FileTransfer` (asyncio, TS3+TS6) |
 | manual reconnect loop | `await client.run_forever()` |
 
 ## Development

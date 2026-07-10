@@ -1,6 +1,6 @@
 """RawConnection: the ServerQuery session state machine.
 
-Owns one :class:`~tsq.transport.Transport` and runs a background receive
+Owns one :class:`~atsq.transport.Transport` and runs a background receive
 loop that separates the two interleaved streams on the wire:
 
 - command responses (0+ data lines closed by an ``error id=...`` line),
@@ -18,15 +18,15 @@ import contextlib
 import logging
 from typing import TYPE_CHECKING, Self
 
-from tsq.dialect import QUIRKS, Dialect, sniff_dialect
-from tsq.errors import (
+from atsq.dialect import QUIRKS, Dialect, sniff_dialect
+from atsq.errors import (
     ConnectionClosedError,
     FloodError,
     QueryError,
     QueryTimeoutError,
 )
-from tsq.events import Event
-from tsq.protocol import (
+from atsq.events import Event
+from atsq.protocol import (
     ErrorLine,
     is_error_line,
     is_event_line,
@@ -39,7 +39,7 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Iterable, Mapping
     from types import TracebackType
 
-    from tsq.transport import Transport
+    from atsq.transport import Transport
 
 __all__ = ["RawConnection"]
 
@@ -99,10 +99,10 @@ class RawConnection:
             self._dialect = sniff_dialect(self._greeting)
 
         self._touch()
-        self._recv_task = asyncio.create_task(self._recv_loop(), name="tsq-recv")
+        self._recv_task = asyncio.create_task(self._recv_loop(), name="atsq-recv")
         if self._keepalive_interval > 0:
             self._keepalive_task = asyncio.create_task(
-                self._keepalive_loop(), name="tsq-keepalive"
+                self._keepalive_loop(), name="atsq-keepalive"
             )
         return self
 
@@ -165,7 +165,7 @@ class RawConnection:
         """Send one command and return its parsed data rows.
 
         ``blocks`` pipelines multi-key parameter blocks (see
-        :func:`tsq.protocol.render_command`).
+        :func:`atsq.protocol.render_command`).
 
         Flood protection (error 524) is retried automatically up to
         ``flood_retries`` times, waiting the interval the server asks for
@@ -187,7 +187,7 @@ class RawConnection:
                 if attempt == self._flood_retries:
                     raise
                 LOG.warning(
-                    "tsq: flood protection hit for %r, retrying in %.1fs",
+                    "atsq: flood protection hit for %r, retrying in %.1fs",
                     cmd,
                     err.retry_after,
                 )
@@ -282,7 +282,7 @@ class RawConnection:
         except asyncio.CancelledError:
             raise
         except Exception as err:  # pragma: no cover - defensive
-            LOG.exception("tsq receive loop crashed")
+            LOG.exception("atsq receive loop crashed")
             self._shutdown(ConnectionClosedError(f"receive loop crashed: {err}"))
 
     def _publish_event(self, event: Event) -> None:

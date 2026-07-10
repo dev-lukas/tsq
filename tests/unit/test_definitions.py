@@ -1,6 +1,6 @@
-from tsq.definitions import LEAVE_REASONS, ClientType, ReasonId, TargetMode
-from tsq.events import Event
-from tsq.protocol import render_command
+from atsq.definitions import LEAVE_REASONS, ClientType, ReasonId, TargetMode
+from atsq.events import Event
+from atsq.protocol import render_command
 
 
 def test_reason_ids_compare_against_wire_strings() -> None:

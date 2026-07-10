@@ -2,7 +2,7 @@
 #
 # Host ports are ephemeral (127.0.0.1::10022) on purpose: the CI runner is
 # shared between repos, fixed ports would collide. Discover them with
-#   docker compose -p tsq-integration port ts3 10022
+#   docker compose -p atsq-integration port ts3 10022
 #
 # ts3: serveradmin password is generated on first boot and printed once in
 #      the logs (loginname= "serveradmin", password= "..."). Teardown uses
@@ -12,7 +12,7 @@
 #      throwaway test servers only.
 # ts6: password is deterministic via TSSERVER_QUERY_ADMIN_PASSWORD.
 
-name: tsq-integration
+name: atsq-integration
 
 services:
   ts3:
@@ -54,7 +54,7 @@ services:
     environment:
       TSSERVER_LICENSE_ACCEPTED: accept
       TSSERVER_QUERY_SSH_ENABLED: "1"
-      TSSERVER_QUERY_ADMIN_PASSWORD: tsq-ci-password
+      TSSERVER_QUERY_ADMIN_PASSWORD: atsq-ci-password
     volumes:
       - ./query_ip_allowlist.txt:/var/tsserver/query_ip_allowlist.txt
     ports:

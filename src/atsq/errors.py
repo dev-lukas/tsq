@@ -1,4 +1,4 @@
-"""Exception hierarchy for tsq."""
+"""Exception hierarchy for atsq."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ FLOOD_ERROR_ID = 524
 
 
 class TsqError(Exception):
-    """Base class for all tsq errors."""
+    """Base class for all atsq errors."""
 
 
 class ConnectionClosedError(TsqError):
