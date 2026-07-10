@@ -15,7 +15,7 @@ from atsq.events import Event
 from atsq.filetransfer import FileTransfer
 from atsq.transport import SshTransport, Transport
 
-__version__ = "1.0.0a3"
+__version__ = "1.0.0a4"
 
 __all__ = [
     "ALL_EVENTS",
