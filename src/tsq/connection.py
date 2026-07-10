@@ -192,7 +192,7 @@ class RawConnection:
                     err.retry_after,
                 )
                 await asyncio.sleep(err.retry_after + 0.1)
-        raise AssertionError("unreachable")
+        raise AssertionError("unreachable")  # pragma: no cover
 
     async def _exec_line(self, line: bytes) -> list[dict[str, str]]:
         async with self._cmd_lock:
@@ -231,7 +231,8 @@ class RawConnection:
         Raises :class:`QueryTimeoutError` if *timeout* elapses first and
         :class:`ConnectionClosedError` once the connection is gone.
         """
-        if self._closed and self._event_queue.empty():
+        if self._closed and self._event_queue.empty():  # pragma: no cover - racy corner
+            # Normally the close sentinel keeps the queue non-empty forever.
             raise ConnectionClosedError("connection is closed")
         try:
             async with asyncio.timeout(timeout):
@@ -298,7 +299,7 @@ class RawConnection:
 
     def _shutdown(self, reason: ConnectionClosedError) -> None:
         """Mark closed and wake everything that is waiting."""
-        if self._closed:
+        if self._closed:  # pragma: no cover - close()/recv-loop race
             return
         self._closed = True
         if self._pending is not None and not self._pending.done():

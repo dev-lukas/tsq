@@ -22,14 +22,16 @@ trap cleanup EXIT
 echo "Starting ts3 + ts6..."
 $compose up -d
 
-echo "Waiting for ts3 to become healthy..."
-ts3_ok=""
-for _ in $(seq 1 40); do
-  state="$($compose ps ts3 --format '{{.Health}}' 2>/dev/null || true)"
-  if [ "$state" = "healthy" ]; then ts3_ok=1; break; fi
-  sleep 3
+echo "Waiting for ts3 + ts3strict to become healthy..."
+for service in ts3 ts3strict; do
+  ok=""
+  for _ in $(seq 1 40); do
+    state="$($compose ps "$service" --format '{{.Health}}' 2>/dev/null || true)"
+    if [ "$state" = "healthy" ]; then ok=1; break; fi
+    sleep 3
+  done
+  [ -n "$ok" ] || { echo "$service did not become healthy in time" >&2; exit 1; }
 done
-[ -n "$ts3_ok" ] || { echo "ts3 did not become healthy in time" >&2; exit 1; }
 
 echo "Waiting for ts6 ssh query listener..."
 ts6_ok=""
@@ -44,19 +46,29 @@ ts3_port="$($compose port ts3 10022 | awk -F: '{print $NF}')"
 ts6_port="$($compose port ts6 10022 | awk -F: '{print $NF}')"
 ts3_ft_port="$($compose port ts3 30033 | awk -F: '{print $NF}')"
 ts6_ft_port="$($compose port ts6 30033 | awk -F: '{print $NF}')"
+ts3strict_port="$($compose port ts3strict 10022 | awk -F: '{print $NF}')"
 # The ts3 image prints the generated serveradmin password once on first boot:
 #   loginname= "serveradmin", password= "XXXX"
-ts3_password="$($compose logs ts3 2>&1 \
-  | grep -oE 'loginname= "serveradmin", password= "[^"]+"' \
-  | grep -oE '"[^"]+"$' | tr -d '"' | head -1)"
-if [ -z "$ts3_password" ]; then
-  echo "Could not parse the ts3 serveradmin password from the logs" >&2
+parse_password() {
+  $compose logs "$1" 2>&1 \
+    | grep -oE 'loginname= "serveradmin", password= "[^"]+"' \
+    | grep -oE '"[^"]+"$' | tr -d '"' | head -1
+}
+ts3_password="$(parse_password ts3)"
+ts3strict_password="$(parse_password ts3strict)"
+if [ -z "$ts3_password" ] || [ -z "$ts3strict_password" ]; then
+  echo "Could not parse a serveradmin password from the logs" >&2
   exit 1
 fi
 
 export TSQ_TS3_HOST=127.0.0.1 TSQ_TS3_PORT="$ts3_port" TSQ_TS3_PASSWORD="$ts3_password"
 export TSQ_TS6_HOST=127.0.0.1 TSQ_TS6_PORT="$ts6_port" TSQ_TS6_PASSWORD=tsq-ci-password
 export TSQ_TS3_FT_PORT="$ts3_ft_port" TSQ_TS6_FT_PORT="$ts6_ft_port"
+export TSQ_TS3STRICT_HOST=127.0.0.1 TSQ_TS3STRICT_PORT="$ts3strict_port"
+export TSQ_TS3STRICT_PASSWORD="$ts3strict_password"
 
-echo "Running integration suite against ts3 (:$ts3_port) and ts6 (:$ts6_port)..."
-uv run --frozen pytest -m integration -q
+# Run the ENTIRE suite (unit + fake + integration) under one coverage gate:
+# with the live tests included, every module - transport included - must be
+# covered. This is what enforces "each function has a unit AND a live test".
+echo "Running full suite (unit + fake + integration) with coverage gate..."
+uv run --frozen pytest -m "not slow" -q --cov=tsq --cov-report=term-missing --cov-fail-under=99

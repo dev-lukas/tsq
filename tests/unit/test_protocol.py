@@ -218,6 +218,11 @@ class TestParseErrorLine:
         with pytest.raises(ValueError):
             parse_error_line(b"clid=1")
 
+    def test_tolerates_double_spaces(self) -> None:
+        parsed = parse_error_line(b"error id=0  msg=ok")
+        assert parsed.id == 0
+        assert parsed.msg == "ok"
+
 
 class TestParseDataLine:
     def test_single_row(self) -> None:

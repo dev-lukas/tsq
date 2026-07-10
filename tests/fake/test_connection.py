@@ -256,6 +256,68 @@ async def test_close_swallows_send_failure() -> None:
     assert conn.closed
 
 
+async def test_close_sentinel_evicts_events_when_queue_full() -> None:
+    transport = FakeTransport()
+    async with make_conn(transport, event_queue_size=1) as conn:
+        transport.inject(b"notifyx a=1")  # fills the queue
+        await asyncio.sleep(0.05)
+        transport.drop()  # sentinel must still get through (evicting the event)
+        await asyncio.sleep(0.05)
+        with pytest.raises(ConnectionClosedError):
+            await conn.wait_for_event(timeout=1)
+
+
+async def test_send_keepalive_is_a_whoami() -> None:
+    transport = FakeTransport()
+    transport.when(b"whoami", [b"client_id=1", OK])
+    async with make_conn(transport) as conn:
+        await conn.send_keepalive()
+    assert transport.sent[0] == b"whoami"
+
+
+async def test_wait_for_event_after_close_raises_immediately() -> None:
+    transport = FakeTransport()
+    conn = make_conn(transport)
+    await conn.start()
+    await conn.close()
+    with pytest.raises(ConnectionClosedError):
+        await conn.wait_for_event(timeout=5)
+
+
+async def test_recv_loop_skips_blank_lines() -> None:
+    transport = FakeTransport()
+    async with make_conn(transport) as conn:
+        transport.inject(b"", b"notifyx a=1")
+        event = await conn.wait_for_event(timeout=1)
+    assert event["a"] == "1"
+
+
+async def test_unsolicited_error_line_is_dropped() -> None:
+    transport = FakeTransport()
+    transport.when(b"whoami", [b"client_id=1", OK])
+    async with make_conn(transport) as conn:
+        transport.inject(OK)  # no command pending: must not crash the loop
+        await asyncio.sleep(0.05)
+        assert (await conn.exec("whoami"))[0]["client_id"] == "1"
+
+
+async def test_keepalive_loop_stops_when_keepalive_fails() -> None:
+    transport = FakeTransport()
+    transport.when(b"whoami", [b"error id=1 msg=nope"])
+    async with make_conn(transport, keepalive_interval=0.05) as conn:
+        await asyncio.sleep(0.2)
+        # the failed keepalive ended the loop but the connection survives
+        assert not conn.closed
+    assert transport.sent.count(b"whoami") == 1
+
+
+async def test_greeting_property_exposes_raw_lines() -> None:
+    transport = FakeTransport()
+    async with make_conn(transport) as conn:
+        assert conn.greeting[0] == b"TS3"
+        assert b"ServerQuery" in conn.greeting[1]
+
+
 async def test_ts6_style_greeting_sniffs_ts6() -> None:
     # Probe finding: TS6 also greets with a literal "TS3" first line; only
     # the welcome line differs ("TeamSpeak" instead of "TeamSpeak 3").

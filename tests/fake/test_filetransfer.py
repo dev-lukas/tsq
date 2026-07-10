@@ -5,7 +5,7 @@ import pytest
 
 from tests.fake.fake_transport import FakeTransport
 from tsq.client import Client
-from tsq.errors import ConnectionClosedError, QueryError
+from tsq.errors import ConnectionClosedError, QueryError, QueryTimeoutError
 from tsq.filetransfer import FileTransfer
 
 OK = b"error id=0 msg=ok"
@@ -20,21 +20,33 @@ class FakeFtServer:
         self.uploads: dict[str, bytes] = {}
         self.downloads: dict[str, bytes] = {}
         self.short_read_keys: set[str] = set()
+        self.stall_keys: set[str] = set()
         self.port = 0
 
     async def __aenter__(self) -> "FakeFtServer":
+        self._tasks: set[asyncio.Task[None]] = set()
         self._server = await asyncio.start_server(self._handle, "127.0.0.1", 0)
         self.port = self._server.sockets[0].getsockname()[1]
         return self
 
     async def __aexit__(self, *exc: object) -> None:
+        for task in self._tasks:  # stalled handlers would block wait_closed()
+            task.cancel()
         self._server.close()
         await self._server.wait_closed()
 
     async def _handle(
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
     ) -> None:
+        task = asyncio.current_task()
+        assert task is not None
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
         key = (await reader.readexactly(32)).decode("ascii")
+        if key in self.stall_keys:
+            await asyncio.sleep(30)  # simulate a hung transfer (never completes)
+            writer.close()
+            return
         if key in self.downloads:
             payload = self.downloads[key]
             if key in self.short_read_keys:
@@ -144,6 +156,55 @@ async def test_init_failure_row_raises_query_error(
         await ft.upload(b"x", "/f.bin", overwrite=False)
     assert excinfo.value.error_id == 2050
     assert "already exists" in str(excinfo.value)
+
+
+async def test_file_info_returns_row(
+    setup: tuple[FileTransfer, FakeTransport],
+) -> None:
+    ft, transport = setup
+    transport.when(b"ftgetfileinfo", [b"cid=7 name=\\/f.bin size=3", OK])
+    info = await ft.file_info("f.bin", cid=7)
+    assert info["size"] == "3"
+    assert transport.sent[0] == rb"ftgetfileinfo cid=7 cpw= name=\/f.bin"
+
+
+async def test_file_list_reraises_other_errors(
+    setup: tuple[FileTransfer, FakeTransport],
+) -> None:
+    ft, transport = setup
+    transport.when(b"ftgetfilelist", [b"error id=2568 msg=insufficient\\spermissions"])
+    with pytest.raises(QueryError) as excinfo:
+        await ft.file_list(cid=7)
+    assert excinfo.value.error_id == 2568  # only 1281 (empty dir) maps to []
+
+
+async def test_upload_timeout(
+    setup: tuple[FileTransfer, FakeTransport], ft_server: FakeFtServer
+) -> None:
+    ft, transport = setup
+    ft._timeout = 0.1  # the fake server never accepts this key's upload EOF
+    ft_server.stall_keys.add(UPLOAD_KEY)
+    transport.when(
+        b"ftinitupload",
+        [f"clientftfid=1 ftkey={UPLOAD_KEY} port=1 seekpos=0".encode(), OK],
+    )
+    with pytest.raises(QueryTimeoutError):
+        await ft.upload(b"payload", "/f.bin")
+
+
+async def test_download_timeout(
+    setup: tuple[FileTransfer, FakeTransport], ft_server: FakeFtServer
+) -> None:
+    ft, transport = setup
+    ft._timeout = 0.1
+    ft_server.downloads[DOWNLOAD_KEY] = b"data"
+    ft_server.stall_keys.add(DOWNLOAD_KEY)
+    transport.when(
+        b"ftinitdownload",
+        [f"clientftfid=1 ftkey={DOWNLOAD_KEY} port=1 size=4".encode(), OK],
+    )
+    with pytest.raises(QueryTimeoutError):
+        await ft.download("/f.bin")
 
 
 async def test_icon_helpers_use_crc32_names(

@@ -276,6 +276,22 @@ async def test_run_forever_banned_uses_banned_delay() -> None:
     await asyncio.wait_for(task, timeout=2)
 
 
+async def test_run_forever_propagates_cancellation() -> None:
+    farm = TransportFarm()
+    client = make_client(farm)
+    ready = asyncio.Event()
+
+    async def on_ready(c: Client) -> None:
+        ready.set()
+
+    task = asyncio.create_task(client.run_forever(on_ready=on_ready))
+    await asyncio.wait_for(ready.wait(), timeout=2)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    await client.close()
+
+
 async def test_close_stops_run_forever_during_backoff() -> None:
     farm = TransportFarm(fail_first=1000)
     client = make_client(farm)
@@ -283,6 +299,70 @@ async def test_close_stops_run_forever_during_backoff() -> None:
     await asyncio.sleep(0.05)
     await client.close()
     await asyncio.wait_for(task, timeout=2)
+
+
+async def test_client_delegations_and_props() -> None:
+    from tsq.dialect import Dialect
+
+    farm = TransportFarm()
+    client = make_client(farm)
+    assert client.host == "unused-host"
+    await client.start()
+    assert client.dialect is Dialect.TS3
+    await client.send_keepalive()
+    assert b"whoami" in farm.transports[0].sent
+
+    farm.transports[0].inject(b"notifyx a=1")
+    event = await client.wait_for_event(timeout=1)
+    assert event["a"] == "1"
+
+    farm.transports[0].inject(b"notifyy b=2")
+    async for event in client.events():
+        assert event["b"] == "2"
+        break
+    await client.close()
+
+
+async def test_single_channel_tuple_registration() -> None:
+    transport = FakeTransport()
+    transport.when(b"", [OK])
+
+    async def factory() -> FakeTransport:
+        return transport
+
+    client = Client(
+        "h",
+        password="p",
+        transport_factory=factory,
+        keepalive_interval=0,
+        register_events=("channel", 0),  # a single pair, not a sequence
+    )
+    await client.start()
+    await client.close()
+    assert b"servernotifyregister event=channel id=0" in transport.sent
+
+
+async def test_connect_function_returns_started_client() -> None:
+    from tsq.client import connect
+
+    farm = TransportFarm()
+    client = await connect(
+        "h", password="p", server_id=1, transport_factory=farm, keepalive_interval=0
+    )
+    assert client.connected
+    assert farm.transports[0].sent[0] == b"use sid=1"
+    await client.close()
+
+
+async def test_connect_function_cleans_up_on_failure() -> None:
+    from tsq.client import connect
+
+    farm = TransportFarm(banned_first=1)
+    with pytest.raises(QueryError):
+        await connect(
+            "h", password="p", server_id=1, transport_factory=farm, keepalive_interval=0
+        )
+    assert farm.transports[0].is_closed
 
 
 class TestTypedWrappers:

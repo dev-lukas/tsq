@@ -32,8 +32,30 @@ class TestSession:
         rows = await client.client_list("uid")
         own = [row for row in rows if row["clid"] == me["client_id"]]
         assert own, rows
-        assert own[0]["client_type"] == "1"  # query client
+        assert own[0]["client_type"] == tsq.ClientType.QUERY
         assert "client_unique_identifier" in own[0]  # -uid option honoured
+
+    async def test_client_info_chain(self, client: tsq.Client) -> None:
+        """client_info -> client_dbid_from_uid -> server_groups_by_client."""
+        me = await client.whoami()
+        info = await client.client_info(me["client_id"])
+        assert info["client_nickname"] == me["client_nickname"]
+        assert "client_myteamspeak_id" in info  # the firephenix identity field
+
+        dbid = await client.client_dbid_from_uid(me["client_unique_identifier"])
+        assert dbid == me["client_database_id"]
+
+        groups = await client.server_groups_by_client(dbid)
+        assert any(row["name"] == "Admin Server Query" for row in groups)
+
+    async def test_send_keepalive(self, client: tsq.Client) -> None:
+        await client.send_keepalive()
+        assert (await client.whoami())["virtualserver_id"] == "1"
+
+    async def test_greeting_exposed(self, client: tsq.Client) -> None:
+        greeting = client.connection.greeting
+        assert greeting[0] == b"TS3"  # literally, on BOTH generations
+        assert len(greeting) == 2
 
 
 class TestEscaping:
@@ -54,6 +76,81 @@ class TestEscaping:
             await client.exec("thisisnotacommand")
         assert excinfo.value.error_id == 256
         assert "command not found" in str(excinfo.value)
+
+
+class TestChannelWrappers:
+    async def test_channel_perm_and_move_wrappers(
+        self, client: tsq.Client, run_token: str
+    ) -> None:
+        parent = await client.channel_create(
+            f"tsq wrap parent {run_token}", channel_flag_permanent=1
+        )
+        child = await client.channel_create(
+            f"tsq wrap child {run_token}", channel_flag_permanent=1
+        )
+        await client.channel_add_perm(parent, "i_channel_needed_join_power", 42)
+        perms = await client.exec("channelpermlist", "permsid", cid=parent)
+        assert {
+            key: row[key]
+            for row in perms
+            if row["permsid"] == "i_channel_needed_join_power"
+            for key in ("permsid", "permvalue")
+        } == {"permsid": "i_channel_needed_join_power", "permvalue": "42"}
+        await client.channel_move(child, parent)
+        rows = await client.exec("channellist")
+        moved = next(row for row in rows if row["cid"] == child)
+        assert moved["pid"] == parent
+
+
+class TestQueryClientContracts:
+    """Live contracts for the group/kick wrappers.
+
+    A query client's database id cannot be added to groups or kicked -
+    both generations answer with the same error ids (512 invalid clientID,
+    516 invalid client type). Pinning these documents the live behaviour
+    the firephenix bot relies on error-handling-wise.
+    """
+
+    async def test_group_wrappers_reject_query_dbid(self, client: tsq.Client) -> None:
+        me = await client.whoami()
+        dbid = me["client_database_id"]
+        # (expected error ids taken from the recorded probe transcripts)
+        for call, expected in (
+            (client.server_group_add_client(7, dbid), 512),
+            (client.server_group_del_client(7, dbid), 2563),
+            (client.set_client_channel_group(5, 1, dbid), 512),
+            (client.channel_client_add_perm(1, dbid, "i_channel_join_power", 1), 512),
+        ):
+            with pytest.raises(tsq.QueryError) as excinfo:
+                await call
+            assert excinfo.value.error_id == expected, str(excinfo.value)
+
+    async def test_client_kick_rejects_query_client(self, client: tsq.Client) -> None:
+        me = await client.whoami()
+        with pytest.raises(tsq.QueryError) as excinfo:
+            await client.client_kick(me["client_id"], reasonmsg="tsq test")
+        assert excinfo.value.error_id == 516
+
+
+class TestTransportLifecycle:
+    async def test_close_idempotent_and_io_after_close_raises(
+        self, server: ServerTarget
+    ) -> None:
+        from tsq.transport import SshTransport
+
+        transport = await SshTransport.connect(
+            server.host, server.port, username="serveradmin", password=server.password
+        )
+        assert not transport.is_closed
+        assert await transport.read_line() == b"TS3"
+        await transport.read_line()  # welcome line - drain the whole greeting
+        await transport.close()
+        await transport.close()  # idempotent
+        assert transport.is_closed
+        with pytest.raises(tsq.ConnectionClosedError):
+            await transport.send_line(b"whoami")
+        with pytest.raises(tsq.ConnectionClosedError):
+            await transport.read_line()  # buffer empty -> closed error
 
 
 class TestErrors:
@@ -95,7 +192,8 @@ class TestEvents:
             await second.close()
         left = await client.wait_for_event(timeout=10)
         assert left.name == "clientleftview"
-        assert left["reasonid"] == "8"
+        assert left["reasonid"] == tsq.ReasonId.QUIT
+        assert left["reasonid"] in tsq.LEAVE_REASONS
         assert left["clid"] == joined_clid
 
     async def test_text_message_event(
@@ -115,6 +213,72 @@ class TestEvents:
             assert event["msg"] == payload
         finally:
             await second.close()
+
+    async def test_events_iterator(self, client: tsq.Client, server: ServerTarget) -> None:
+        await client.server_notify_register("textserver")
+        await client.send_text_message(0, "iterate me", targetmode=3)
+        async for event in client.events():
+            if event.name == "textmessage":
+                assert event["msg"] == "iterate me"
+                break
+
+    async def test_run_forever_dispatch_and_live_reconnect(
+        self, server: ServerTarget, run_token: str
+    ) -> None:
+        """The full bot loop against a live server, including a reconnect.
+
+        `exec("quit")` makes the server close the connection - run_forever
+        must recover, re-run use/servernotifyregister, and keep dispatching.
+        """
+        client = tsq.Client(
+            server.host,
+            server.port,
+            password=server.password,
+            server_id=1,
+            register_events="server",
+            nickname=f"tsq rf {run_token}",
+        )
+        readies = 0
+        reconnected = asyncio.Event()
+        joined = asyncio.Event()
+
+        @client.on("cliententerview")
+        async def on_join(event: tsq.Event) -> None:
+            joined.set()
+
+        async def on_ready(c: tsq.Client) -> None:
+            nonlocal readies
+            readies += 1
+            if readies == 2:
+                reconnected.set()
+
+        task = asyncio.create_task(
+            client.run_forever(on_ready=on_ready, initial_delay=0.5, max_delay=2.0)
+        )
+        try:
+            for _ in range(100):
+                if readies >= 1:
+                    break
+                await asyncio.sleep(0.1)
+            assert readies >= 1, "run_forever never became ready"
+
+            # a second client joining reaches the @on handler
+            second = await tsq.connect(
+                server.host, server.port, password=server.password, server_id=1
+            )
+            await second.close()
+            await asyncio.wait_for(joined.wait(), timeout=10)
+
+            # server-side disconnect -> automatic reconnect
+            import contextlib
+
+            with contextlib.suppress(tsq.TsqError):
+                await client.exec("quit")
+            await asyncio.wait_for(reconnected.wait(), timeout=15)
+            assert (await client.whoami())["virtualserver_id"] == "1"
+        finally:
+            await client.close()
+            await asyncio.wait_for(task, timeout=5)
 
     async def test_events_flow_while_commands_run(
         self, client: tsq.Client, server: ServerTarget
@@ -256,6 +420,21 @@ class TestFileTransfer:
         rows = await ft.file_list(cid=cid, path="/sub")
         assert [row["name"] for row in rows] == ["b.txt"]
         assert await ft.download("/sub/b.txt", cid=cid) == b"hello tsq"
+
+    async def test_icon_round_trip(self, ft: tsq.FileTransfer) -> None:
+        import zlib
+
+        icon = b"\x89PNG tsq fake icon " + bytes(range(64))
+        icon_id = await ft.upload_icon(icon)
+        assert icon_id == zlib.crc32(icon)
+        assert await ft.download_icon(icon_id) == icon
+        # icons are addressed as /icon_<id> but the server files them under
+        # the /icons directory of cid 0 (both generations)
+        listed = await ft.file_list(cid=0, path="/icons")
+        assert any(row["name"] == f"icon_{icon_id}" for row in listed)
+        await ft.delete_icon(icon_id)
+        remaining = await ft.file_list(cid=0, path="/icons")
+        assert all(row["name"] != f"icon_{icon_id}" for row in remaining)
 
     async def test_overwrite_false_surfaces_conflict(
         self, client: tsq.Client, ft: tsq.FileTransfer, run_token: str

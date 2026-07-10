@@ -9,14 +9,11 @@ without any network.
 from __future__ import annotations
 
 import contextlib
-from typing import TYPE_CHECKING, Protocol, Self, runtime_checkable
+from typing import Protocol, Self, runtime_checkable
 
 import asyncssh
 
 from tsq.errors import ConnectionClosedError
-
-if TYPE_CHECKING:
-    from types import TracebackType
 
 __all__ = ["SshTransport", "Transport"]
 
@@ -100,7 +97,7 @@ class SshTransport:
             stdin, stdout, _stderr = await conn.open_session(
                 term_type=term_type, encoding=None
             )
-        except BaseException:
+        except BaseException:  # pragma: no cover - session-open race
             conn.abort()
             raise
         return cls(conn, stdin, stdout)
@@ -124,7 +121,7 @@ class SshTransport:
                 raise ConnectionClosedError("transport closed")
             try:
                 chunk = await self._stdout.read(_READ_CHUNK)
-            except asyncssh.ConnectionLost as err:
+            except asyncssh.ConnectionLost as err:  # pragma: no cover - network race
                 self._closed = True
                 raise ConnectionClosedError(str(err)) from err
             if not chunk:
@@ -138,7 +135,11 @@ class SshTransport:
         try:
             self._stdin.write(data + LINE_TERMINATOR)
             await self._stdin.drain()
-        except (asyncssh.ConnectionLost, BrokenPipeError, ConnectionError) as err:
+        except (  # pragma: no cover - network race
+            asyncssh.ConnectionLost,
+            BrokenPipeError,
+            ConnectionError,
+        ) as err:
             self._closed = True
             raise ConnectionClosedError(str(err)) from err
 
@@ -153,14 +154,3 @@ class SshTransport:
     @property
     def is_closed(self) -> bool:
         return self._closed
-
-    async def __aenter__(self) -> Self:
-        return self
-
-    async def __aexit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc: BaseException | None,
-        tb: TracebackType | None,
-    ) -> None:
-        await self.close()

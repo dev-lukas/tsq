@@ -33,6 +33,22 @@ services:
       timeout: 5s
       retries: 24
 
+  # Same TS3 image but WITHOUT the allowlist: connections arrive from the
+  # docker gateway IP and are flood-limited, so the flood/524 handling can
+  # be exercised against a real server (the allowlisted ones never 524).
+  ts3strict:
+    image: teamspeak:3.13
+    environment:
+      TS3SERVER_LICENSE: accept
+      TS3SERVER_QUERY_PROTOCOLS: raw,ssh
+    ports:
+      - "127.0.0.1::10022"
+    healthcheck:
+      test: ["CMD-SHELL", "echo quit | nc localhost 10011 | grep -q TS3"]
+      interval: 5s
+      timeout: 5s
+      retries: 24
+
   ts6:
     image: teamspeaksystems/teamspeak6-server:latest
     environment:

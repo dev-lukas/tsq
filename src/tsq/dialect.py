@@ -36,16 +36,21 @@ class Dialect(enum.Enum):
 
 @dataclass(frozen=True, slots=True)
 class DialectQuirks:
-    #: Exact first greeting line sent by the server after the channel opens.
-    #: Probe: literally b"TS3" on BOTH generations (TS6 keeps it for compat).
-    greeting_head: bytes
+    """Per-generation wire deviations.
+
+    Currently only the greeting length - the probe found no behavioural
+    divergence that the client must branch on. The type stays as the
+    containment point for future TS6-beta drift.
+    """
+
     #: Total number of greeting lines to consume before commands may be sent.
+    #: (The first line is literally ``TS3`` on BOTH generations.)
     greeting_lines: int
 
 
 QUIRKS: dict[Dialect, DialectQuirks] = {
-    Dialect.TS3: DialectQuirks(greeting_head=b"TS3", greeting_lines=2),
-    Dialect.TS6: DialectQuirks(greeting_head=b"TS3", greeting_lines=2),
+    Dialect.TS3: DialectQuirks(greeting_lines=2),
+    Dialect.TS6: DialectQuirks(greeting_lines=2),
 }
 
 
