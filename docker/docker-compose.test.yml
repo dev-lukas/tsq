@@ -24,6 +24,7 @@ services:
       - ./query_ip_allowlist.txt:/var/ts3server/query_ip_allowlist.txt
     ports:
       - "127.0.0.1::10022"
+      - "127.0.0.1::30033"  # file transfer data channel
     healthcheck:
       # raw stays enabled solely so this healthcheck can probe the query
       # interface with the tools available in the image.
@@ -42,3 +43,4 @@ services:
       - ./query_ip_allowlist.txt:/var/tsserver/query_ip_allowlist.txt
     ports:
       - "127.0.0.1::10022"
+      - "127.0.0.1::30033"  # file transfer data channel

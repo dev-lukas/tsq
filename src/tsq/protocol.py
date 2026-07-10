@@ -7,7 +7,7 @@ transcripts from real servers.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 
 from tsq.escape import escape, unescape
@@ -27,6 +27,7 @@ _ENCODING = "utf-8"
 def render_command(
     cmd: str,
     *options: str,
+    blocks: Iterable[Mapping[str, object]] | None = None,
     **params: object,
 ) -> bytes:
     """Render one command line (without terminator).
@@ -36,15 +37,43 @@ def render_command(
     parameter block (``key=a|key=b``) for commands that accept multiple
     targets. ``None`` values are skipped.
 
+    ``blocks`` pipelines multi-key parameter blocks in one command: the
+    shared ``params`` and the first block form the first segment, each
+    further block becomes a ``|``-separated segment.
+
     >>> render_command("clientkick", clid=5, reasonid=5)
     b'clientkick clid=5 reasonid=5'
     >>> render_command("clientlist", "uid")
     b'clientlist -uid'
+    >>> render_command("channeladdperm", cid=60,
+    ...                blocks=[{"permsid": "a", "permvalue": 1},
+    ...                        {"permsid": "b", "permvalue": 2}])
+    b'channeladdperm cid=60 permsid=a permvalue=1|permsid=b permvalue=2'
     """
     if not cmd or " " in cmd:
         raise ValueError(f"invalid command name: {cmd!r}")
-    parts: list[str] = [cmd]
-    for key, value in params.items():
+    segments = [_render_block(params)]
+    if blocks is not None:
+        for index, block in enumerate(blocks):
+            rendered = _render_block(block)
+            if not rendered:
+                raise ValueError(f"pipelined block {index} rendered empty: {block!r}")
+            if index == 0 and segments[0]:
+                segments[0] = f"{segments[0]} {rendered}"
+            elif index == 0:
+                segments[0] = rendered
+            else:
+                segments.append(rendered)
+    parts = [cmd]
+    if piped := "|".join(segment for segment in segments if segment):
+        parts.append(piped)
+    parts.extend(f"-{option}" for option in options)
+    return " ".join(parts).encode(_ENCODING)
+
+
+def _render_block(block: Mapping[str, object]) -> str:
+    parts: list[str] = []
+    for key, value in block.items():
         if value is None:
             continue
         if isinstance(value, list | tuple):
@@ -53,8 +82,7 @@ def render_command(
                 parts.append(rendered)
         else:
             parts.append(_render_param(key, value))
-    parts.extend(f"-{option}" for option in options)
-    return " ".join(parts).encode(_ENCODING)
+    return " ".join(parts)
 
 
 def _render_param(key: str, value: object) -> str:

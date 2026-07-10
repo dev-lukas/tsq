@@ -42,6 +42,8 @@ done
 echo "Discovering ephemeral ports and credentials..."
 ts3_port="$($compose port ts3 10022 | awk -F: '{print $NF}')"
 ts6_port="$($compose port ts6 10022 | awk -F: '{print $NF}')"
+ts3_ft_port="$($compose port ts3 30033 | awk -F: '{print $NF}')"
+ts6_ft_port="$($compose port ts6 30033 | awk -F: '{print $NF}')"
 # The ts3 image prints the generated serveradmin password once on first boot:
 #   loginname= "serveradmin", password= "XXXX"
 ts3_password="$($compose logs ts3 2>&1 \
@@ -54,6 +56,7 @@ fi
 
 export TSQ_TS3_HOST=127.0.0.1 TSQ_TS3_PORT="$ts3_port" TSQ_TS3_PASSWORD="$ts3_password"
 export TSQ_TS6_HOST=127.0.0.1 TSQ_TS6_PORT="$ts6_port" TSQ_TS6_PASSWORD=tsq-ci-password
+export TSQ_TS3_FT_PORT="$ts3_ft_port" TSQ_TS6_FT_PORT="$ts6_ft_port"
 
 echo "Running integration suite against ts3 (:$ts3_port) and ts6 (:$ts6_port)..."
 uv run --frozen pytest -m integration -q

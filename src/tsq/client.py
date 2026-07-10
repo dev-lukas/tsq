@@ -36,7 +36,7 @@ from tsq.errors import ConnectionClosedError
 from tsq.transport import SshTransport, Transport
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Awaitable, Callable
+    from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Mapping
     from types import TracebackType
 
     from tsq.events import Event
@@ -77,6 +77,7 @@ class Client:
         transport_factory: TransportFactory | None = None,
         **ssh_options: Any,
     ) -> None:
+        self._host = host
         self._transport_factory: TransportFactory = transport_factory or (
             lambda: SshTransport.connect(
                 host, port, username=username, password=password, **ssh_options
@@ -122,6 +123,11 @@ class Client:
         self._stopping = True
         if self._conn is not None:
             await self._conn.close()
+
+    @property
+    def host(self) -> str:
+        """The server host this client was constructed for."""
+        return self._host
 
     @property
     def connected(self) -> bool:
@@ -229,9 +235,15 @@ class Client:
 
     # -- generic command ----------------------------------------------------
 
-    async def exec(self, cmd: str, *options: str, **params: object) -> list[dict[str, str]]:
+    async def exec(
+        self,
+        cmd: str,
+        *options: str,
+        blocks: Iterable[Mapping[str, object]] | None = None,
+        **params: object,
+    ) -> list[dict[str, str]]:
         """Run any ServerQuery command (see :meth:`RawConnection.exec`)."""
-        return await self.connection.exec(cmd, *options, **params)
+        return await self.connection.exec(cmd, *options, blocks=blocks, **params)
 
     async def send_keepalive(self) -> None:
         await self.connection.send_keepalive()
@@ -277,7 +289,7 @@ class Client:
     ) -> None:
         await self.exec("setclientchannelgroup", cgid=cgid, cid=cid, cldbid=cldbid)
 
-    async def channel_create(self, channel_name: str, **props: object) -> str:
+    async def channel_create(self, channel_name: str, **props: Any) -> str:
         """Create a channel and return its ``cid``."""
         rows = await self.exec("channelcreate", channel_name=channel_name, **props)
         return rows[0]["cid"]

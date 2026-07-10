@@ -49,6 +49,16 @@ difference affects tsq's core. All divergence handling lives in
   back-to-back commands produce zero `error id=524` on both.
 - `client_myteamspeak_id` is present in `clientinfo` on both (needed by the
   firephenix identity bridge).
+- **File transfer**: identical on both — same `ftinitupload`/`ftinitdownload`
+  /`ftgetfilelist`/`ftgetfileinfo`/`ftdeletefile`/`ftcreatedir`/`ftrenamefile`
+  commands, same ftkey + raw-TCP data channel on port 30033 (`FileManager`),
+  byte-exact round-trips verified. Quirk shared by both: `ftgetfilelist` on an
+  empty directory answers `error id=1281 database empty result set` instead of
+  zero rows (tsq's `FileTransfer.file_list` maps that to `[]`), and init
+  failures (e.g. overwrite conflicts) arrive as `status`/`msg` fields in the
+  response row rather than as an error line.
+- **Pipelined parameter blocks** (`channeladdperm cid=… permsid=a permvalue=1|permsid=b permvalue=2`)
+  work identically on both (verified via `channelpermlist`).
 
 ## Differences (all additive/cosmetic)
 

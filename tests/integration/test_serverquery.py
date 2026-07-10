@@ -140,6 +140,83 @@ class TestEvents:
             await churn_task  # must complete without desync/timeouts
 
 
+class TestPipelining:
+    async def test_piped_permission_blocks_apply_in_one_command(
+        self, client: tsq.Client, run_token: str
+    ) -> None:
+        cid = await client.channel_create(
+            f"tsq pipe {run_token}", channel_flag_permanent=1
+        )
+        await client.exec(
+            "channeladdperm",
+            cid=cid,
+            blocks=[
+                {"permsid": "i_channel_needed_join_power", "permvalue": 75},
+                {"permsid": "i_channel_needed_subscribe_power", "permvalue": 60},
+            ],
+        )
+        rows = await client.exec("channelpermlist", "permsid", cid=cid)
+        perms = {row["permsid"]: row["permvalue"] for row in rows}
+        assert perms["i_channel_needed_join_power"] == "75"
+        assert perms["i_channel_needed_subscribe_power"] == "60"
+
+
+class TestFileTransfer:
+    @pytest.fixture
+    def ft(self, client: tsq.Client, server: ServerTarget) -> tsq.FileTransfer:
+        if server.ft_port is None:
+            pytest.skip(f"{server.name} file-transfer port not configured")
+        return tsq.FileTransfer(client, port_override=server.ft_port, timeout=20.0)
+
+    async def test_upload_list_download_delete_round_trip(
+        self, client: tsq.Client, ft: tsq.FileTransfer, run_token: str
+    ) -> None:
+        cid = int(await client.channel_create(
+            f"tsq ft {run_token}", channel_flag_permanent=1
+        ))
+        payload = bytes(range(256)) * 64  # 16 KiB covering every byte value
+        await ft.upload(payload, "/tsq-test.bin", cid=cid)
+
+        files = await ft.file_list(cid=cid)
+        names = {row["name"]: row for row in files}
+        assert "tsq-test.bin" in names
+        assert names["tsq-test.bin"]["size"] == str(len(payload))
+
+        assert await ft.download("/tsq-test.bin", cid=cid) == payload
+
+        info = await ft.file_info("/tsq-test.bin", cid=cid)
+        assert info["size"] == str(len(payload))
+
+        await ft.delete_file("/tsq-test.bin", cid=cid)
+        remaining = await ft.file_list(cid=cid)
+        assert all(row["name"] != "tsq-test.bin" for row in remaining)
+
+    async def test_directory_create_and_rename(
+        self, client: tsq.Client, ft: tsq.FileTransfer, run_token: str
+    ) -> None:
+        cid = int(await client.channel_create(
+            f"tsq ftdir {run_token}", channel_flag_permanent=1
+        ))
+        await ft.create_directory("/sub", cid=cid)
+        await ft.upload(b"hello tsq", "/sub/a.txt", cid=cid)
+        await ft.rename_file("/sub/a.txt", "/sub/b.txt", cid=cid)
+        rows = await ft.file_list(cid=cid, path="/sub")
+        assert [row["name"] for row in rows] == ["b.txt"]
+        assert await ft.download("/sub/b.txt", cid=cid) == b"hello tsq"
+
+    async def test_overwrite_false_surfaces_conflict(
+        self, client: tsq.Client, ft: tsq.FileTransfer, run_token: str
+    ) -> None:
+        cid = int(await client.channel_create(
+            f"tsq ftow {run_token}", channel_flag_permanent=1
+        ))
+        await ft.upload(b"one", "/dup.bin", cid=cid)
+        with pytest.raises(tsq.QueryError):
+            await ft.upload(b"two", "/dup.bin", cid=cid, overwrite=False)
+        # the original file is untouched and the connection stays usable
+        assert await ft.download("/dup.bin", cid=cid) == b"one"
+
+
 class TestFlood:
     async def test_rapid_commands_no_desync(self, client: tsq.Client) -> None:
         """30 back-to-back commands: no hang, no protocol desync.

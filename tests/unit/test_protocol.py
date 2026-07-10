@@ -128,6 +128,51 @@ class TestRenderCommand:
             == b"servergroupdelclient sgid=13|sgid=14 cldbid=7"
         )
 
+    def test_blocks_pipeline_with_shared_params(self) -> None:
+        assert render_command(
+            "channeladdperm",
+            cid=60,
+            blocks=[
+                {"permsid": "i_channel_needed_join_power", "permvalue": 75},
+                {"permsid": "i_channel_join_power", "permvalue": 100},
+            ],
+        ) == (
+            b"channeladdperm cid=60 permsid=i_channel_needed_join_power permvalue=75"
+            b"|permsid=i_channel_join_power permvalue=100"
+        )
+
+    def test_blocks_without_shared_params(self) -> None:
+        assert render_command(
+            "clientkick",
+            blocks=[{"clid": 1}, {"clid": 2}],
+            reasonid=None,
+        ) == b"clientkick clid=1|clid=2"
+
+    def test_blocks_values_escaped(self) -> None:
+        assert render_command(
+            "channeledit",
+            blocks=[{"channel_name": "a b"}, {"channel_name": "c|d"}],
+        ) == (rb"channeledit channel_name=a\sb|channel_name=c\pd")
+
+    def test_blocks_with_options(self) -> None:
+        assert render_command(
+            "servergroupaddperm",
+            "continueonerror",
+            sgid=13,
+            blocks=[{"permsid": "a", "permvalue": 1}, {"permsid": "b", "permvalue": 2}],
+        ) == (
+            b"servergroupaddperm sgid=13 permsid=a permvalue=1"
+            b"|permsid=b permvalue=2 -continueonerror"
+        )
+
+    def test_empty_blocks_is_plain_command(self) -> None:
+        assert render_command("whoami", blocks=[]) == b"whoami"
+        assert render_command("use", sid=1, blocks=None) == b"use sid=1"
+
+    def test_empty_block_rejected(self) -> None:
+        with pytest.raises(ValueError):
+            render_command("clientkick", blocks=[{"clid": 1}, {}])
+
     def test_invalid_command_name_rejected(self) -> None:
         with pytest.raises(ValueError):
             render_command("client info")

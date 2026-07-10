@@ -31,7 +31,7 @@ from tsq.protocol import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncIterator, Iterable, Mapping
     from types import TracebackType
 
     from tsq.transport import Transport
@@ -148,8 +148,17 @@ class RawConnection:
 
     # -- commands ----------------------------------------------------------
 
-    async def exec(self, cmd: str, *options: str, **params: object) -> list[dict[str, str]]:
+    async def exec(
+        self,
+        cmd: str,
+        *options: str,
+        blocks: Iterable[Mapping[str, object]] | None = None,
+        **params: object,
+    ) -> list[dict[str, str]]:
         """Send one command and return its parsed data rows.
+
+        ``blocks`` pipelines multi-key parameter blocks (see
+        :func:`tsq.protocol.render_command`).
 
         Raises :class:`QueryError` (or :class:`FloodError`) when the server
         answers with ``error id != 0``, :class:`QueryTimeoutError` when no
@@ -157,7 +166,7 @@ class RawConnection:
         closed: an unanswered command means the stream can no longer be
         trusted), and :class:`ConnectionClosedError` if the connection dies.
         """
-        line = render_command(cmd, *options, **params)
+        line = render_command(cmd, *options, blocks=blocks, **params)
         async with self._cmd_lock:
             if self._closed:
                 raise ConnectionClosedError("connection is closed")

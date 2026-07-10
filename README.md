@@ -65,11 +65,38 @@ async for event in client.events():
 # or: event = await client.wait_for_event(timeout=240)
 ```
 
-Anything without a typed wrapper goes through the generic escape-safe `exec()`:
+Anything without a typed wrapper goes through the generic escape-safe `exec()`,
+including pipelined bulk commands (many parameter blocks, one round trip):
 
 ```python
 rows = await ts.exec("servergrouplist")
 await ts.exec("clientmove", clid=5, cid=42)
+await ts.exec("channeladdperm", cid=60, blocks=[
+    {"permsid": "i_channel_needed_join_power", "permvalue": 75},
+    {"permsid": "i_channel_needed_subscribe_power", "permvalue": 60},
+])
+```
+
+Wire constants are available as `StrEnum`s that compare directly against
+event/row values:
+
+```python
+from tsq import ReasonId, TargetMode, ClientType, LEAVE_REASONS
+
+if event["reasonid"] == ReasonId.CONNECT and event["client_type"] == ClientType.VOICE:
+    ...
+if event.get("reasonid") in LEAVE_REASONS:
+    ...
+```
+
+File transfer (icons, avatars, channel files) — same API against TS3 and TS6:
+
+```python
+ft = tsq.FileTransfer(client)
+await ft.upload(icon_bytes, "/icon_3735928559")      # cid=0 = server icons
+data = await ft.download("/tsq.bin", cid=42)
+rows = await ft.file_list(cid=42, path="/")          # [] for empty dirs
+await ft.delete_file("/tsq.bin", cid=42)
 ```
 
 ### Errors
@@ -123,6 +150,9 @@ Enable SSH query on a TS3 server with `TS3SERVER_QUERY_PROTOCOLS=raw,ssh`; on TS
 | `conn.send_keepalive()` | automatic (or `await ts.send_keepalive()`) |
 | `ts3.query.TS3QueryError` | `tsq.QueryError` (str() still contains the server msg) |
 | `ts3.query.TS3TimeoutError` | `tsq.QueryTimeoutError` |
+| query builder `.pipe()` | `exec(cmd, blocks=[{...}, {...}], **shared)` |
+| `ts3.definitions` constants | `tsq.ReasonId` / `TargetMode` / `ClientType` / `LEAVE_REASONS` |
+| `ts3.filetransfer.TS3FileTransfer` | `tsq.FileTransfer` (asyncio, TS3+TS6) |
 | manual reconnect loop | `await client.run_forever()` |
 
 ## Development

@@ -30,6 +30,9 @@ class ServerTarget:
     port: int
     password: str
     expected_dialect: tsq.Dialect
+    #: Host port mapped to the container's file-transfer port (30033);
+    #: None when the harness does not publish it.
+    ft_port: int | None
 
 
 @pytest.fixture(scope="session", params=["ts3", "ts6"])
@@ -39,12 +42,14 @@ def server(request: pytest.FixtureRequest) -> ServerTarget:
     host = os.environ.get(prefix + "HOST")
     if not host:
         pytest.skip(f"{name} server not configured (set {prefix}HOST/PORT/PASSWORD)")
+    ft_port = os.environ.get(prefix + "FT_PORT")
     return ServerTarget(
         name=name,
         host=host,
         port=int(os.environ[prefix + "PORT"]),
         password=os.environ[prefix + "PASSWORD"],
         expected_dialect=tsq.Dialect.TS3 if name == "ts3" else tsq.Dialect.TS6,
+        ft_port=int(ft_port) if ft_port else None,
     )
 
 
