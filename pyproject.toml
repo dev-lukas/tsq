@@ -1,6 +1,6 @@
 [project]
 name = "tsq"
-version = "0.1.0.dev0"
+version = "1.0.0a1"
 description = "Asyncio TeamSpeak ServerQuery client for TeamSpeak 3 and TeamSpeak 6 over SSH"
 readme = "README.md"
 license = "MIT"

@@ -13,7 +13,7 @@ from tsq.errors import (
 from tsq.events import Event
 from tsq.transport import SshTransport, Transport
 
-__version__ = "0.1.0.dev0"
+__version__ = "1.0.0a1"
 
 __all__ = [
     "Client",
