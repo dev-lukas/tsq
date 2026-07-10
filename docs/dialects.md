@@ -27,6 +27,10 @@ difference affects tsq's core. All divergence handling lives in
 - **Framing**: `\n\r` line terminator everywhere (responses and events).
 - **Escaping**: identical table; `channelcreate` round-trip of
   `tsq probe | pipe| a/b\c<TAB>end` returns byte-identical escapes on both.
+  Caveat (both generations, server-side): **channel names sanitize control
+  characters away** (a `\t` in `channel_name` is silently dropped), while
+  **text messages preserve them** — escaping itself is lossless; the
+  sanitization is per-field server policy.
 - **Command set**: the full firephenix parity set (`use`,
   `servernotifyregister`, `clientlist -uid`, `clientinfo`,
   `clientgetdbidfromuid`, `servergroupsbyclientid`,
