@@ -14,6 +14,7 @@ transparently.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from typing import TYPE_CHECKING, Self
 
@@ -83,12 +84,12 @@ class RawConnection:
 
     async def start(self) -> Self:
         """Consume the greeting and start the background tasks."""
-        first = await self._transport.read_line()
+        # Both generations send the same number of greeting lines and can
+        # only be told apart by the welcome line, so read first, sniff after.
+        greeting_lines = QUIRKS[Dialect.TS3].greeting_lines
+        self._greeting = [await self._transport.read_line() for _ in range(greeting_lines)]
         if self._dialect is Dialect.AUTO:
-            self._dialect = sniff_dialect(first)
-        self._greeting = [first]
-        for _ in range(QUIRKS[self._dialect].greeting_lines - 1):
-            self._greeting.append(await self._transport.read_line())
+            self._dialect = sniff_dialect(self._greeting)
 
         self._touch()
         self._recv_task = asyncio.create_task(self._recv_loop(), name="tsq-recv")
@@ -99,13 +100,25 @@ class RawConnection:
         return self
 
     async def close(self) -> None:
-        """Close the connection and cancel background tasks. Idempotent."""
+        """Close the connection and cancel background tasks. Idempotent.
+
+        Sends a best-effort ``quit`` first: TS6 (probe: 6.0.0-beta11) does
+        not emit a timely ``notifyclientleftview`` for query clients that
+        just drop the connection - only a clean ``quit`` produces one
+        (reasonid=8, immediate on both generations).
+        """
         if self._closed:
             return
         self._shutdown(ConnectionClosedError("connection closed locally"))
         for task in (self._keepalive_task, self._recv_task):
             if task is not None and task is not asyncio.current_task():
                 task.cancel()
+        if not self._transport.is_closed:
+            # Best-effort with a hard cap: close() must never hang on a peer
+            # that stopped reading.
+            with contextlib.suppress(Exception):
+                async with asyncio.timeout(2.0):
+                    await self._transport.send_line(b"quit")
         await self._transport.close()
 
     @property

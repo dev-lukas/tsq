@@ -37,7 +37,7 @@ async def test_exec_returns_parsed_rows() -> None:
         {"clid": "1", "client_nickname": "A"},
         {"clid": "2", "client_nickname": "B C"},
     ]
-    assert transport.sent == [b"clientlist"]
+    assert transport.sent == [b"clientlist", b"quit"]  # quit is sent by close()
 
 
 async def test_exec_empty_response_is_empty_list() -> None:
@@ -101,7 +101,7 @@ async def test_concurrent_execs_serialize_in_order() -> None:
         result_a, result_b = await asyncio.gather(conn.exec("cmd_a"), conn.exec("cmd_b"))
     assert result_a == [{"answer": "a"}]
     assert result_b == [{"answer": "b"}]
-    assert transport.sent == [b"cmd_a", b"cmd_b"]
+    assert transport.sent == [b"cmd_a", b"cmd_b", b"quit"]  # quit is sent by close()
 
 
 async def test_command_timeout_closes_connection() -> None:
@@ -210,7 +210,38 @@ async def test_close_is_idempotent_and_stops_everything() -> None:
         await conn.wait_for_event(timeout=1)
 
 
-async def test_ts6_style_greeting_sniffs_non_ts3() -> None:
-    transport = FakeTransport(greeting=[b"TS6 Server", b"Welcome"])
+async def test_close_sends_quit() -> None:
+    # TS6 emits no notifyclientleftview for query clients that silently drop
+    # the connection; a clean `quit` produces one on both generations, so
+    # close() must send it (fire-and-forget) before tearing down.
+    transport = FakeTransport()
+    async with make_conn(transport):
+        pass
+    assert transport.sent == [b"quit"]
+
+
+async def test_close_swallows_send_failure() -> None:
+    transport = FakeTransport()
+    conn = make_conn(transport)
+    await conn.start()
+    transport.drop()
+    await asyncio.sleep(0.05)  # recv loop notices EOF first
+    await conn.close()  # must not raise even though quit cannot be sent
+    assert conn.closed
+
+
+async def test_ts6_style_greeting_sniffs_ts6() -> None:
+    # Probe finding: TS6 also greets with a literal "TS3" first line; only
+    # the welcome line differs ("TeamSpeak" instead of "TeamSpeak 3").
+    transport = FakeTransport(
+        greeting=[
+            b"TS3",
+            (
+                b'Welcome to the TeamSpeak ServerQuery interface, type "help" '
+                b'for a list of commands and "help <command>" for information '
+                b"on a specific command."
+            ),
+        ]
+    )
     async with make_conn(transport) as conn:
         assert conn.dialect is Dialect.TS6

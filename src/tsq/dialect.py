@@ -1,9 +1,17 @@
 """Server dialect handling.
 
-All TS3-vs-TS6 divergence must live in this module. The quirks table is
-populated from the recorded dialect probe (``scripts/probe_dialect.py``,
-findings in ``docs/dialects.md``) - values marked PLACEHOLDER are unverified
-until the probe has run against a real server of that generation.
+All TS3-vs-TS6 divergence must live in this module. Values below are taken
+from the recorded dialect probe (``scripts/probe_dialect.py``; transcripts in
+``tests/unit/fixtures/probe_ts3.log`` / ``probe_ts6.log``, findings in
+``docs/dialects.md``), run against teamspeak:3.13 (3.13.7) and
+teamspeaksystems/teamspeak6-server (6.0.0-beta11).
+
+Probe verdict: the wire dialects are almost identical. Both greet with a
+literal ``TS3`` first line, frame lines as ``\\n\\r``, use the same escape
+table, the same error codes, and emit the same events. TS6 only *adds*
+fields (``virtualserver_uuid``, ``client_is_streaming``). The reliable
+distinguishing marks are the second greeting line and the ``version``
+command.
 """
 
 from __future__ import annotations
@@ -13,32 +21,41 @@ from dataclasses import dataclass
 
 __all__ = ["QUIRKS", "Dialect", "DialectQuirks", "sniff_dialect"]
 
+#: Second greeting line prefix that identifies a TS3-generation server.
+#: TS3: 'Welcome to the TeamSpeak 3 ServerQuery interface, ...'
+#: TS6: 'Welcome to the TeamSpeak ServerQuery interface, ...'
+_TS3_WELCOME_PREFIX = b"Welcome to the TeamSpeak 3 "
+
 
 class Dialect(enum.Enum):
     TS3 = "ts3"
     TS6 = "ts6"
-    #: Detect from the greeting's first line at connect time.
+    #: Detect from the greeting at connect time.
     AUTO = "auto"
 
 
 @dataclass(frozen=True, slots=True)
 class DialectQuirks:
     #: Exact first greeting line sent by the server after the channel opens.
+    #: Probe: literally b"TS3" on BOTH generations (TS6 keeps it for compat).
     greeting_head: bytes
     #: Total number of greeting lines to consume before commands may be sent.
     greeting_lines: int
 
 
 QUIRKS: dict[Dialect, DialectQuirks] = {
-    # TS3: b"TS3" + b"Welcome to the TeamSpeak 3 ServerQuery interface, ..."
     Dialect.TS3: DialectQuirks(greeting_head=b"TS3", greeting_lines=2),
-    # PLACEHOLDER until the M4 probe records a real TS6 greeting.
-    Dialect.TS6: DialectQuirks(greeting_head=b"TS6", greeting_lines=2),
+    Dialect.TS6: DialectQuirks(greeting_head=b"TS3", greeting_lines=2),
 }
 
 
-def sniff_dialect(first_greeting_line: bytes) -> Dialect:
-    """Guess the dialect from the first greeting line (AUTO mode)."""
-    if first_greeting_line.startswith(b"TS3"):
-        return Dialect.TS3
+def sniff_dialect(greeting: list[bytes]) -> Dialect:
+    """Determine the dialect from the full greeting.
+
+    The first line is ``TS3`` on both generations, so only the welcome line
+    distinguishes them. Unknown shapes default to TS6 (the growing side).
+    """
+    for line in greeting:
+        if line.startswith(_TS3_WELCOME_PREFIX):
+            return Dialect.TS3
     return Dialect.TS6

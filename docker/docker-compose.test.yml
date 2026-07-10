@@ -1,0 +1,44 @@
+# Real TeamSpeak servers for integration tests and the dialect probe.
+#
+# Host ports are ephemeral (127.0.0.1::10022) on purpose: the CI runner is
+# shared between repos, fixed ports would collide. Discover them with
+#   docker compose -p tsq-integration port ts3 10022
+#
+# ts3: serveradmin password is generated on first boot and printed once in
+#      the logs (loginname= "serveradmin", password= "..."). Teardown uses
+#      -v so every run is a first boot.
+#      The query IP allowlist must contain the client's source subnet or the
+#      server drops/bans query connections; 0.0.0.0/0 is fine for these
+#      throwaway test servers only.
+# ts6: password is deterministic via TSSERVER_QUERY_ADMIN_PASSWORD.
+
+name: tsq-integration
+
+services:
+  ts3:
+    image: teamspeak:3.13
+    environment:
+      TS3SERVER_LICENSE: accept
+      TS3SERVER_QUERY_PROTOCOLS: raw,ssh
+    volumes:
+      - ./query_ip_allowlist.txt:/var/ts3server/query_ip_allowlist.txt
+    ports:
+      - "127.0.0.1::10022"
+    healthcheck:
+      # raw stays enabled solely so this healthcheck can probe the query
+      # interface with the tools available in the image.
+      test: ["CMD-SHELL", "echo quit | nc localhost 10011 | grep -q TS3"]
+      interval: 5s
+      timeout: 5s
+      retries: 24
+
+  ts6:
+    image: teamspeaksystems/teamspeak6-server:latest
+    environment:
+      TSSERVER_LICENSE_ACCEPTED: accept
+      TSSERVER_QUERY_SSH_ENABLED: "1"
+      TSSERVER_QUERY_ADMIN_PASSWORD: tsq-ci-password
+    volumes:
+      - ./query_ip_allowlist.txt:/var/tsserver/query_ip_allowlist.txt
+    ports:
+      - "127.0.0.1::10022"
