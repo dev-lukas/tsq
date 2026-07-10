@@ -61,6 +61,89 @@ async def test_start_runs_use_and_register() -> None:
     assert farm.transports[0].sent[:2] == [b"use sid=1", b"servernotifyregister event=server"]
 
 
+async def test_nickname_and_server_port_and_multi_events() -> None:
+    transport = FakeTransport()
+    transport.when(b"", [OK])  # everything succeeds
+
+    async def factory() -> FakeTransport:
+        return transport
+
+    client = Client(
+        "unused-host",
+        password="unused",
+        transport_factory=factory,
+        keepalive_interval=0,
+        server_port=9987,
+        nickname="Ember Bot",
+        register_events=["server", ("channel", 0), "textserver"],
+    )
+    await client.start()
+    await client.close()
+    assert transport.sent[:5] == [
+        b"use port=9987",
+        rb"clientupdate client_nickname=Ember\sBot",
+        b"servernotifyregister event=server",
+        b"servernotifyregister event=channel id=0",
+        b"servernotifyregister event=textserver",
+    ]
+
+
+async def test_nickname_collision_does_not_break_connect() -> None:
+    transport = FakeTransport()
+    transport.when(b"use ", [OK])
+    transport.when(
+        b"clientupdate", [b"error id=513 msg=nickname\\sis\\salready\\sin\\suse"]
+    )
+
+    async def factory() -> FakeTransport:
+        return transport
+
+    client = Client(
+        "unused-host",
+        password="unused",
+        transport_factory=factory,
+        keepalive_interval=0,
+        server_id=1,
+        nickname="Taken",
+    )
+    await client.start()
+    assert client.connected  # collision logged, connection kept
+    await client.close()
+
+
+async def test_server_id_and_port_mutually_exclusive() -> None:
+    with pytest.raises(ValueError):
+        Client("h", password="p", server_id=1, server_port=9987)
+
+
+async def test_all_events_constant_registers_every_source() -> None:
+    from tsq import ALL_EVENTS
+
+    transport = FakeTransport()
+    transport.when(b"", [OK])
+
+    async def factory() -> FakeTransport:
+        return transport
+
+    client = Client(
+        "unused-host",
+        password="unused",
+        transport_factory=factory,
+        keepalive_interval=0,
+        register_events=ALL_EVENTS,
+    )
+    await client.start()
+    await client.close()
+    registers = [line for line in transport.sent if line.startswith(b"servernotifyregister")]
+    assert registers == [
+        b"servernotifyregister event=server",
+        b"servernotifyregister event=channel id=0",
+        b"servernotifyregister event=textserver",
+        b"servernotifyregister event=textchannel",
+        b"servernotifyregister event=textprivate",
+    ]
+
+
 async def test_start_failure_closes_connection() -> None:
     farm = TransportFarm(banned_first=1)
     client = make_client(farm)

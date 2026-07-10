@@ -140,6 +140,59 @@ class TestEvents:
             await churn_task  # must complete without desync/timeouts
 
 
+class TestClientOptions:
+    async def test_nickname_and_multi_event_registration(
+        self, server: ServerTarget, run_token: str
+    ) -> None:
+        nick = f"tsq {run_token}"
+        c = await tsq.connect(
+            server.host,
+            server.port,
+            password=server.password,
+            server_id=1,
+            nickname=nick,
+            register_events=tsq.ALL_EVENTS,
+        )
+        try:
+            assert (await c.whoami())["client_nickname"] == nick
+            # textserver registration active: our own message comes back
+            await c.send_text_message(0, "hello", targetmode=3)
+            event = await c.wait_for_event(timeout=10)
+            assert event.name == "textmessage"
+            assert event["msg"] == "hello"
+        finally:
+            await c.close()
+
+    async def test_select_server_by_voice_port(self, server: ServerTarget) -> None:
+        c = await tsq.connect(
+            server.host, server.port, password=server.password, server_port=9987
+        )
+        try:
+            assert (await c.whoami())["virtualserver_id"] == "1"
+        finally:
+            await c.close()
+
+
+class TestSnapshots:
+    async def test_snapshot_create_and_deploy_round_trip(
+        self, client: tsq.Client
+    ) -> None:
+        """Snapshots need no special payload handling - plain exec works."""
+        rows = await client.exec("serversnapshotcreate")
+        snapshot = rows[0]
+        assert snapshot["version"] == "3"
+        assert len(snapshot["data"]) > 100
+        await client.exec(
+            "serversnapshotdeploy", version=snapshot["version"], data=snapshot["data"]
+        )
+        # Deploy recreates the virtual server and deselects the session
+        # (whoami reports virtualserver_id=0) on both generations - callers
+        # must re-`use` afterwards.
+        assert (await client.whoami())["virtualserver_id"] == "0"
+        await client.use(1)
+        assert (await client.whoami())["virtualserver_id"] == "1"
+
+
 class TestPipelining:
     async def test_piped_permission_blocks_apply_in_one_command(
         self, client: tsq.Client, run_token: str

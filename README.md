@@ -43,7 +43,9 @@ Long-running bot with events and automatic reconnect:
 
 ```python
 client = tsq.Client("ts.example.com", 10022, password="...",
-                    server_id=1, register_events="server")
+                    server_id=1,                    # or server_port=9987
+                    nickname="My Bot",              # re-applied on reconnect
+                    register_events=tsq.ALL_EVENTS) # or "server", or a list
 
 @client.on("cliententerview")
 async def on_join(event: tsq.Event) -> None:
@@ -93,7 +95,7 @@ File transfer (icons, avatars, channel files) — same API against TS3 and TS6:
 
 ```python
 ft = tsq.FileTransfer(client)
-await ft.upload(icon_bytes, "/icon_3735928559")      # cid=0 = server icons
+icon_id = await ft.upload_icon(png_bytes)            # crc32-named, returns the id
 data = await ft.download("/tsq.bin", cid=42)
 rows = await ft.file_list(cid=42, path="/")          # [] for empty dirs
 await ft.delete_file("/tsq.bin", cid=42)
@@ -119,6 +121,12 @@ client's IP to the server's `query_ip_allowlist.txt` to be exempt.
 
 - **Keepalive**: automatic `whoami` after 240 s idle (servers kick at ~300 s).
   Configure via `keepalive_interval`; `0` disables.
+- **Flood protection**: an `error 524` is retried automatically after the wait
+  the server asks for (`flood_retries`, default 2; `0` disables). Allowlisted
+  IPs (`query_ip_allowlist.txt`) never hit it in the first place.
+- **Snapshots** work via plain `exec("serversnapshotcreate")` /
+  `exec("serversnapshotdeploy", version=..., data=...)` — note deploy
+  deselects the session; call `use` again afterwards.
 - **Reconnect** (`run_forever`): exponential backoff 5 s → 300 s; a server message
   containing "banned" waits 300 s. `use`/`servernotifyregister` and `on_ready` re-run
   after every reconnect.

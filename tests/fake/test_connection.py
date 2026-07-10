@@ -57,12 +57,38 @@ async def test_query_error_raised_with_server_msg() -> None:
     assert "invalid serverID" in str(excinfo.value)
 
 
-async def test_flood_error_type() -> None:
+async def test_flood_retry_waits_and_succeeds() -> None:
+    # Probe-verified format on both generations (with "1 seconds" live;
+    # 0 here to keep the test fast - the parse is pinned in test_errors).
+    flood = (
+        b"error id=524 msg=client\\sis\\sflooding "
+        b"extra_msg=please\\swait\\s0\\sseconds"
+    )
     transport = FakeTransport()
-    transport.when(b"whoami", [b"error id=524 msg=client\\sis\\sflooding"])
+    transport.when(b"whoami", [flood], [b"client_id=1", OK])
     async with make_conn(transport) as conn:
+        rows = await conn.exec("whoami")
+    assert rows == [{"client_id": "1"}]
+    assert transport.sent[:2] == [b"whoami", b"whoami"]  # retried once
+
+
+async def test_flood_retries_exhausted_raises() -> None:
+    flood = b"error id=524 msg=client\\sis\\sflooding extra_msg=please\\swait\\s0\\sseconds"
+    transport = FakeTransport()
+    transport.when(b"whoami", [flood])  # floods forever
+    async with make_conn(transport, flood_retries=1) as conn:
         with pytest.raises(FloodError):
             await conn.exec("whoami")
+    assert transport.sent.count(b"whoami") == 2  # initial + 1 retry
+
+
+async def test_flood_retry_disabled() -> None:
+    transport = FakeTransport()
+    transport.when(b"whoami", [b"error id=524 msg=client\\sis\\sflooding"])
+    async with make_conn(transport, flood_retries=0) as conn:
+        with pytest.raises(FloodError):
+            await conn.exec("whoami")
+    assert transport.sent.count(b"whoami") == 1
 
 
 async def test_event_interleaved_mid_response_does_not_corrupt() -> None:

@@ -1,6 +1,6 @@
 """Asyncio TeamSpeak ServerQuery client for TeamSpeak 3 and 6 over SSH."""
 
-from tsq.client import Client, connect
+from tsq.client import ALL_EVENTS, Client, connect
 from tsq.connection import RawConnection
 from tsq.definitions import LEAVE_REASONS, ClientType, ReasonId, TargetMode
 from tsq.dialect import Dialect
@@ -15,9 +15,10 @@ from tsq.events import Event
 from tsq.filetransfer import FileTransfer
 from tsq.transport import SshTransport, Transport
 
-__version__ = "1.0.0a2"
+__version__ = "1.0.0a3"
 
 __all__ = [
+    "ALL_EVENTS",
     "LEAVE_REASONS",
     "Client",
     "ClientType",

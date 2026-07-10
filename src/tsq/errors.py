@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 __all__ = [
     "ConnectionClosedError",
     "FloodError",
@@ -50,3 +52,12 @@ class QueryError(TsqError):
 
 class FloodError(QueryError):
     """The server's flood protection kicked in (error id 524)."""
+
+    @property
+    def retry_after(self) -> float:
+        """Seconds the server asked us to wait (default 1.0).
+
+        Both generations phrase it as ``extra_msg=please wait N seconds``.
+        """
+        match = re.search(r"wait (\d+) second", self.extra.get("extra_msg", ""))
+        return float(match.group(1)) if match else 1.0

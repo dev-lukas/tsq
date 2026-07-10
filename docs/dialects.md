@@ -59,6 +59,16 @@ difference affects tsq's core. All divergence handling lives in
   response row rather than as an error line.
 - **Pipelined parameter blocks** (`channeladdperm cid=… permsid=a permvalue=1|permsid=b permvalue=2`)
   work identically on both (verified via `channelpermlist`).
+- **Flood protection (524)**: identical live format on both —
+  `msg=client is flooding extra_msg=please wait 1 seconds` — and the
+  connection stays usable after waiting (probed against non-allowlisted
+  servers). tsq parses the hint and retries automatically
+  (`flood_retries`, default 2).
+- **Snapshots**: `serversnapshotcreate` returns `version=3` + zstd/base64
+  `data` on both; `serversnapshotdeploy version=… data=…` works via plain
+  key=value exec (no positional payloads anywhere). Shared caveat: deploy
+  recreates the virtual server and **deselects the query session**
+  (`whoami` → `virtualserver_id=0`) — re-`use` afterwards.
 
 ## Differences (all additive/cosmetic)
 

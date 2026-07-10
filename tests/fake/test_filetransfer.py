@@ -146,6 +146,33 @@ async def test_init_failure_row_raises_query_error(
     assert "already exists" in str(excinfo.value)
 
 
+async def test_icon_helpers_use_crc32_names(
+    setup: tuple[FileTransfer, FakeTransport], ft_server: FakeFtServer
+) -> None:
+    import zlib
+
+    ft, transport = setup
+    icon = b"\x89PNG fake icon bytes"
+    icon_id = zlib.crc32(icon)
+    transport.when(
+        b"ftinitupload",
+        [f"clientftfid=1 ftkey={UPLOAD_KEY} port=1 seekpos=0".encode(), OK],
+    )
+    transport.when(
+        b"ftinitdownload",
+        [f"clientftfid=2 ftkey={DOWNLOAD_KEY} port=1 size={len(icon)}".encode(), OK],
+    )
+    transport.when(b"ftdeletefile", [OK])
+    ft_server.downloads[DOWNLOAD_KEY] = icon
+
+    assert await ft.upload_icon(icon) == icon_id
+    assert ft_server.uploads[UPLOAD_KEY] == icon
+    assert await ft.download_icon(icon_id) == icon
+    await ft.delete_icon(icon_id)
+    sent_names = [line for line in transport.sent if f"icon_{icon_id}".encode() in line]
+    assert len(sent_names) == 3  # upload, download, delete all target /icon_<crc>
+
+
 async def test_empty_directory_lists_as_empty(
     setup: tuple[FileTransfer, FakeTransport],
 ) -> None:

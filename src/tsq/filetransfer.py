@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import itertools
+import zlib
 from typing import TYPE_CHECKING, Any
 
 from tsq.errors import ConnectionClosedError, QueryError, QueryTimeoutError
@@ -128,6 +129,22 @@ class FileTransfer:
                     await writer.wait_closed()
         except TimeoutError as err:
             raise QueryTimeoutError(f"file download {name!r} timed out") from err
+
+    # -- icons ---------------------------------------------------------------
+    # Server icons live as ``/icon_<crc32>`` files in cid 0; the crc32 of the
+    # image bytes doubles as the icon id referenced by ``i_icon_id`` perms.
+
+    async def upload_icon(self, data: bytes) -> int:
+        """Upload an icon and return its icon id (crc32 of the bytes)."""
+        icon_id = zlib.crc32(data)
+        await self.upload(data, f"/icon_{icon_id}", cid=0)
+        return icon_id
+
+    async def download_icon(self, icon_id: int) -> bytes:
+        return await self.download(f"/icon_{icon_id}", cid=0)
+
+    async def delete_icon(self, icon_id: int) -> None:
+        await self.delete_file(f"/icon_{icon_id}", cid=0)
 
     # -- listing / management -------------------------------------------------
 

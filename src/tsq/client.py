@@ -32,24 +32,67 @@ from tsq.connection import (
     RawConnection,
 )
 from tsq.dialect import Dialect
-from tsq.errors import ConnectionClosedError
+from tsq.errors import ConnectionClosedError, QueryError
 from tsq.transport import SshTransport, Transport
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Mapping
+    from collections.abc import (
+        AsyncIterator,
+        Awaitable,
+        Callable,
+        Iterable,
+        Mapping,
+        Sequence,
+    )
     from types import TracebackType
 
     from tsq.events import Event
 
     EventHandler = Callable[["Event"], Awaitable[None]]
     TransportFactory = Callable[[], Awaitable[Transport]]
+    #: Either an event name or ``(event_name, channel_id)`` - the channel id
+    #: is required for ``channel``/``textchannel`` registrations.
+    EventRegistration = tuple[str, int]
 
-__all__ = ["Client", "connect"]
+__all__ = ["ALL_EVENTS", "Client", "connect"]
 
 LOG = logging.getLogger(__name__)
 
 #: Handler key receiving every event regardless of name.
 ANY_EVENT = "*"
+
+#: Every notification source ServerQuery offers - pass as ``register_events``
+#: to hear everything (channel events are anchored at channel 0 = all).
+ALL_EVENTS: tuple[str | tuple[str, int], ...] = (
+    "server",
+    ("channel", 0),
+    "textserver",
+    "textchannel",
+    "textprivate",
+)
+
+
+def _normalize_registrations(
+    value: str | tuple[str, int] | Sequence[str | tuple[str, int]] | None,
+) -> list[tuple[str, int | None]]:
+    if value is None:
+        return []
+    items: Sequence[str | tuple[str, int]]
+    if isinstance(value, str):
+        items = [value]
+    elif isinstance(value, tuple) and len(value) == 2 and isinstance(value[1], int):
+        # a single ("channel", 0) registration, not a sequence of them
+        items = [value]
+    else:
+        items = list(value)
+    normalized: list[tuple[str, int | None]] = []
+    for item in items:
+        if isinstance(item, str):
+            normalized.append((item, None))
+        else:
+            event, channel_id = item
+            normalized.append((event, channel_id))
+    return normalized
 
 
 class Client:
@@ -69,14 +112,20 @@ class Client:
         password: str,
         username: str = "serveradmin",
         server_id: int | None = None,
-        register_events: str | None = None,
+        server_port: int | None = None,
+        nickname: str | None = None,
+        register_events: str | EventRegistration | Sequence[str | EventRegistration]
+        | None = None,
         dialect: Dialect = Dialect.AUTO,
         command_timeout: float = DEFAULT_COMMAND_TIMEOUT,
         keepalive_interval: float = DEFAULT_KEEPALIVE_INTERVAL,
         event_queue_size: int = 1024,
+        flood_retries: int = 2,
         transport_factory: TransportFactory | None = None,
         **ssh_options: Any,
     ) -> None:
+        if server_id is not None and server_port is not None:
+            raise ValueError("pass either server_id or server_port, not both")
         self._host = host
         self._transport_factory: TransportFactory = transport_factory or (
             lambda: SshTransport.connect(
@@ -84,11 +133,14 @@ class Client:
             )
         )
         self._server_id = server_id
-        self._register_events = register_events
+        self._server_port = server_port
+        self._nickname = nickname
+        self._register_events = _normalize_registrations(register_events)
         self._dialect = dialect
         self._command_timeout = command_timeout
         self._keepalive_interval = keepalive_interval
         self._event_queue_size = event_queue_size
+        self._flood_retries = flood_retries
 
         self._conn: RawConnection | None = None
         self._handlers: dict[str, list[EventHandler]] = {}
@@ -97,7 +149,7 @@ class Client:
     # -- lifecycle ---------------------------------------------------------
 
     async def start(self) -> Self:
-        """Connect once: transport, greeting, ``use``, event registration."""
+        """Connect once: transport, greeting, ``use``, nickname, event registration."""
         transport = await self._transport_factory()
         conn = RawConnection(
             transport,
@@ -105,13 +157,23 @@ class Client:
             command_timeout=self._command_timeout,
             keepalive_interval=self._keepalive_interval,
             event_queue_size=self._event_queue_size,
+            flood_retries=self._flood_retries,
         )
         try:
             await conn.start()
             if self._server_id is not None:
                 await conn.exec("use", sid=self._server_id)
-            if self._register_events is not None:
-                await conn.exec("servernotifyregister", event=self._register_events)
+            elif self._server_port is not None:
+                await conn.exec("use", port=self._server_port)
+            if self._nickname is not None:
+                try:
+                    await conn.exec("clientupdate", client_nickname=self._nickname)
+                except QueryError as err:
+                    # A nickname collision (e.g. a lingering previous session)
+                    # must not break the connection - the nick is cosmetic.
+                    LOG.warning("tsq: could not set nickname %r: %s", self._nickname, err)
+            for event, channel_id in self._register_events:
+                await conn.exec("servernotifyregister", event=event, id=channel_id)
         except BaseException:
             await conn.close()
             raise

@@ -19,7 +19,12 @@ import logging
 from typing import TYPE_CHECKING, Self
 
 from tsq.dialect import QUIRKS, Dialect, sniff_dialect
-from tsq.errors import ConnectionClosedError, QueryError, QueryTimeoutError
+from tsq.errors import (
+    ConnectionClosedError,
+    FloodError,
+    QueryError,
+    QueryTimeoutError,
+)
 from tsq.events import Event
 from tsq.protocol import (
     ErrorLine,
@@ -64,11 +69,13 @@ class RawConnection:
         command_timeout: float = DEFAULT_COMMAND_TIMEOUT,
         keepalive_interval: float = DEFAULT_KEEPALIVE_INTERVAL,
         event_queue_size: int = 1024,
+        flood_retries: int = 2,
     ) -> None:
         self._transport = transport
         self._dialect = dialect
         self._command_timeout = command_timeout
         self._keepalive_interval = keepalive_interval
+        self._flood_retries = flood_retries
 
         self._cmd_lock = asyncio.Lock()
         self._pending: asyncio.Future[tuple[list[bytes], ErrorLine]] | None = None
@@ -160,13 +167,34 @@ class RawConnection:
         ``blocks`` pipelines multi-key parameter blocks (see
         :func:`tsq.protocol.render_command`).
 
-        Raises :class:`QueryError` (or :class:`FloodError`) when the server
-        answers with ``error id != 0``, :class:`QueryTimeoutError` when no
-        response arrives within the command timeout (the connection is then
-        closed: an unanswered command means the stream can no longer be
-        trusted), and :class:`ConnectionClosedError` if the connection dies.
+        Flood protection (error 524) is retried automatically up to
+        ``flood_retries`` times, waiting the interval the server asks for
+        (``please wait N seconds``) plus a small margin; both generations
+        keep the connection usable across a 524 (probe-verified).
+
+        Raises :class:`QueryError` (or :class:`FloodError` once the flood
+        retries are exhausted) when the server answers with
+        ``error id != 0``, :class:`QueryTimeoutError` when no response
+        arrives within the command timeout (the connection is then closed:
+        an unanswered command means the stream can no longer be trusted),
+        and :class:`ConnectionClosedError` if the connection dies.
         """
         line = render_command(cmd, *options, blocks=blocks, **params)
+        for attempt in range(self._flood_retries + 1):
+            try:
+                return await self._exec_line(line)
+            except FloodError as err:
+                if attempt == self._flood_retries:
+                    raise
+                LOG.warning(
+                    "tsq: flood protection hit for %r, retrying in %.1fs",
+                    cmd,
+                    err.retry_after,
+                )
+                await asyncio.sleep(err.retry_after + 0.1)
+        raise AssertionError("unreachable")
+
+    async def _exec_line(self, line: bytes) -> list[dict[str, str]]:
         async with self._cmd_lock:
             if self._closed:
                 raise ConnectionClosedError("connection is closed")
@@ -182,7 +210,7 @@ class RawConnection:
                 except TimeoutError as err:
                     await self.close()
                     raise QueryTimeoutError(
-                        f"no response to {cmd!r} within {self._command_timeout}s"
+                        f"no response to {line!r} within {self._command_timeout}s"
                     ) from err
             finally:
                 self._pending = None
