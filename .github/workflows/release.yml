@@ -21,7 +21,7 @@ jobs:
   build:
     runs-on: self-hosted
     steps:
-      - uses: actions/checkout@v7.0.0
+      - uses: actions/checkout@v7.0.1
       - name: Build sdist and wheel
         # The venv lives OUTSIDE the checkout: anything inside the project
         # dir would get packed into the sdist and break the build.
